@@ -201,18 +201,22 @@ def submit_answers(
     request: SubmitRequest,
     user_id: str = Depends(get_current_user)
 ):
+    inserted_rows = []
 
-    result = supabase.table("answers").insert({
-                "user_id": user_id,
-                "answers": request.answers,
-                "created_at": datetime.utcnow().isoformat()
-            }).execute()
+    for question_id, answer in request.answers.items():
+        res = supabase.table("answers").insert({
+            "user_id": user_id,
+            "question_id": question_id,
+            "answer": answer,
+            "created_at": datetime.utcnow().isoformat()
+        }).execute()
+
+        inserted_rows.append(res.data)
 
     return {
         "success": True,
-        "saved": result.data
+        "saved": inserted_rows
     }
-
 # =========================
 # 🔮 SIMULATION
 # =========================

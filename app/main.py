@@ -201,25 +201,31 @@ def submit_answers(
     request: SubmitRequest,
     user_id: str = Depends(get_current_user)
 ):
-    inserted_rows = []
+    try:
+        rows = []
 
-    for question_id, answer in request.answers.items():
-        res = supabase.table("answers").insert({
-            "user_id": user_id,
-            "question_id": question_id,
-            "answer": answer,
-            "created_at": datetime.utcnow().isoformat()
-        }).execute()
+        for question_id, answer in request.answers.items():
+            rows.append({
+                "user_id": user_id,
+                "question_id": question_id,
+                "answer": answer,
+                "created_at": datetime.utcnow().isoformat()
+            })
 
-        if not res.data:
-            raise HTTPException(status_code=500, detail=f"Insert failed for {question_id}")
+        print("📦 INSERTING:", rows)
 
-        inserted_rows.append(res.data)
+        res = supabase.table("answers").insert(rows).execute()
 
-    return {
-        "success": True,
-        "saved": inserted_rows
-    }
+        print("✅ RESULT:", res)
+
+        return {
+            "success": True,
+            "saved": res.data
+        }
+
+    except Exception as e:
+        print("🔥 ERROR:", str(e))
+        raise HTTPException(status_code=500, detail=str(e))
 # =========================
 # 🔮 SIMULATION
 # =========================

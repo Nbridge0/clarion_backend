@@ -187,7 +187,6 @@ def login(request: LoginRequest):
         "user_id": user["id"],
         "token": token
     }).execute()
-
     return {
         "success": True,
         "token": token,

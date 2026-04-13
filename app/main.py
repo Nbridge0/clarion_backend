@@ -10,6 +10,7 @@ from typing import Dict, Any
 
 from dotenv import load_dotenv
 from supabase import create_client
+from datetime import datetime
 
 # =========================
 # 🔐 LOAD ENV
@@ -202,9 +203,10 @@ def submit_answers(
 ):
 
     result = supabase.table("answers").insert({
-        "user_id": user_id,
-        "answers": request.answers
-    }).execute()
+                "user_id": user_id,
+                "answers": request.answers,
+                "created_at": datetime.utcnow().isoformat()
+            }).execute()
 
     return {
         "success": True,

@@ -211,6 +211,9 @@ def submit_answers(
             "created_at": datetime.utcnow().isoformat()
         }).execute()
 
+        if not res.data:
+            raise HTTPException(status_code=500, detail=f"Insert failed for {question_id}")
+
         inserted_rows.append(res.data)
 
     return {

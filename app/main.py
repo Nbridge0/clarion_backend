@@ -209,14 +209,13 @@ def submit_answers(
                 "user_id": user_id,
                 "question_id": question_id,
                 "answer": answer,
-                "created_at": datetime.utcnow().isoformat()
+                "updated_at": datetime.utcnow().isoformat()
             })
 
-        print("📦 INSERTING:", rows)
-
-        res = supabase.table("answers").insert(rows).execute()
-
-        print("✅ RESULT:", res)
+        res = supabase.table("answers").upsert(
+            rows,
+            on_conflict="user_id,question_id"
+        ).execute()
 
         return {
             "success": True,
@@ -224,7 +223,6 @@ def submit_answers(
         }
 
     except Exception as e:
-        print("🔥 ERROR:", str(e))
         raise HTTPException(status_code=500, detail=str(e))
 # =========================
 # 🔮 SIMULATION

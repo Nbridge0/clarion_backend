@@ -131,12 +131,9 @@ def create_user(
     request: CreateUserRequest,
     x_admin_key: str = Header(None)
 ):
-
-    # 🔐 Protect endpoint
     if x_admin_key != os.getenv("ADMIN_KEY"):
         raise HTTPException(status_code=403, detail="Unauthorized")
 
-    # Check existing user
     existing = supabase.table("users") \
         .select("*") \
         .eq("email", request.email) \
@@ -145,7 +142,6 @@ def create_user(
     if existing.data:
         raise HTTPException(status_code=400, detail="User already exists")
 
-    # Hash password
     hashed_pw = bcrypt.hashpw(
         request.password.encode(),
         bcrypt.gensalt()
@@ -155,10 +151,6 @@ def create_user(
         "email": request.email,
         "password": hashed_pw
     }).execute()
-
-    # ✅ SAFE RESPONSE (no password leak)
-    if not result.data:
-        raise HTTPException(status_code=500, detail="User creation failed")
 
     return {
         "success": True,
@@ -189,10 +181,8 @@ def login(request: LoginRequest):
     ):
         raise HTTPException(status_code=401, detail="Wrong password")
 
-    # 🔥 Generate token
     token = str(uuid.uuid4())
 
-    # 🔥 Save token in DB
     supabase.table("sessions").insert({
         "user_id": user["id"],
         "token": token
@@ -200,7 +190,8 @@ def login(request: LoginRequest):
 
     return {
         "success": True,
-        "token": token
+        "token": token,
+        "user_id": user["id"]
     }
 # =========================
 # 📝 SUBMIT ANSWERS

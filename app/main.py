@@ -240,3 +240,5 @@ def debug(request: AnalysisRequest):
         "keys": list(request.data.keys()),
         "preview": request.data
     }
+
+print("🔥 CORRECT MAIN.PY LOADED")

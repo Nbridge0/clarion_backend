@@ -5,7 +5,7 @@ from typing import Dict, Any
 # RULE 4.1 — REVENUE CONCENTRATION
 # =============================
 def revenue_concentration(data):
-    pct = data.q1_customer_concentration
+    pct = data.get("q1_customer_concentration", 0)
 
     if pct > 75:
         return {"risk": "CRITICAL", "score": 10}
@@ -23,7 +23,7 @@ def revenue_concentration(data):
 # RULE 4.3 — BUSINESS MODEL
 # =============================
 def business_model(data):
-    recurring = data.q3_recurring_revenue
+    recurring = data.get("q3_recurring_revenue", 0)
 
     if recurring >= 75:
         return {"type": "SUBSCRIPTION", "predictability": "HIGH"}
@@ -48,7 +48,7 @@ def cash_conversion_cycle(data):
     else:
         DSO = 60
 
-    if data.q2_suspects_waste == "Yes":
+    if data.get("q2_suspects_waste") == "Yes":
         DSO += 20
 
     DPO = 30
@@ -81,7 +81,7 @@ def working_capital_efficiency(ccc):
 def net_profit_margin(data, silo1=None, silo3=None):
     npm = 15.0
 
-    if data.q2_suspects_waste == "Yes":
+    if data.get("q2_suspects_waste") == "Yes":
         npm *= 0.85
 
     if silo1 and silo1.get("staff_alignment", {}).get("score", 0) < 50:
@@ -99,7 +99,7 @@ def net_profit_margin(data, silo1=None, silo3=None):
 def asset_turnover(data, silo2=None, silo3=None):
     at = 2.0
 
-    if data.q1_employee_count > 50:
+    if data.get("q1_employee_count", 0) > 50:
         at *= 0.9
 
     if silo3 and silo3.get("digital_intensity", {}).get("score", 0) >= 70:
@@ -136,19 +136,20 @@ def return_on_equity(npm, at):
 def waste_value(data, silo1=None, silo2=None, silo3=None):
     waste_pct = 0
 
-    if data.q2_suspects_waste == "Yes":
+    if data.get("q2_suspects_waste") == "Yes":
         waste_pct += 10
 
     if silo3 and silo3.get("bottleneck", {}).get("category"):
         waste_pct += 8
 
+    # FIX: systems_efficiency is a number
     if silo1 and silo1.get("systems_efficiency") == 50:
         waste_pct += 12
 
-    if silo3 and data.q2_sops == "None":
+    if silo3 and data.get("q2_sops") == "None":
         waste_pct += 10
 
-    if silo2 and data.q5_turnover >= 50:
+    if silo2 and data.get("q5_turnover", 0) >= 50:
         waste_pct += 15
 
     return waste_pct
@@ -162,7 +163,7 @@ def financial_health(data, concentration_score, ccc, silo6=None):
 
     revenue_stability = (
         concentration_score * 0.4 +
-        data.q3_recurring_revenue * 0.35 +
+        data.get("q3_recurring_revenue", 0) * 0.35 +
         repeat_score * 0.25
     )
 

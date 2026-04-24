@@ -12,12 +12,14 @@ def digital_intensity(data):
         "None": 0
     }
 
-    tool_score = tool_map.get(data.q3_tools, 0)
-    automation_score = 100 if data.q4_automation == "Yes" else 0
-    ai_score = 100 if data.q5_ai == "Yes" else 0
+    tool_score = tool_map.get(data.get("q3_tools"), 0)
+    automation_score = 100 if data.get("q4_automation") == "Yes" else 0
+    ai_score = 100 if data.get("q5_ai") == "Yes" else 0
 
-    ai_breadth = len(data.q6_ai_areas or []) / 6 * 100
-    readiness = (data.q7_digital_readiness or 0) * 10
+    ai_areas = data.get("q6_ai_areas") or []
+    ai_breadth = (len(ai_areas) / 6) * 100 if ai_areas else 0
+
+    readiness = (data.get("q7_digital_readiness", 0)) * 10
 
     avg = (tool_score + automation_score + ai_score + ai_breadth + readiness) / 5
 
@@ -38,10 +40,9 @@ def transformation_management(data):
         "None": 0
     }
 
-    sop_score = sop_map.get(data.q2_sops, 0)
-
-    strategy_score = 100 if data.q10_written_strategy == "Yes" else 0
-    alignment_score = 100 if data.q9_employee_understanding == "Yes" else 40
+    sop_score = sop_map.get(data.get("q2_sops"), 0)
+    strategy_score = 100 if data.get("q10_written_strategy") == "Yes" else 0
+    alignment_score = 100 if data.get("q9_employee_understanding") == "Yes" else 40
 
     avg = (sop_score + strategy_score + alignment_score) / 3
 
@@ -57,13 +58,10 @@ def transformation_management(data):
 def mit_quadrant(di, tm):
     if di >= 60 and tm >= 60:
         return "DIGIRATI"
-
     if di >= 60 and tm < 60:
         return "FASHIONISTAS"
-
     if di < 60 and tm >= 60:
         return "CONSERVATIVES"
-
     return "BEGINNERS"
 
 
@@ -85,9 +83,8 @@ BOTTLENECK_MAP = {
 
 
 def bottleneck(data):
-    category = BOTTLENECK_MAP.get(data.q8_bottleneck, None)
-
-    severity = data.q8b_severity
+    category = BOTTLENECK_MAP.get(data.get("q8_bottleneck"), None)
+    severity = data.get("q8b_severity")
 
     return {
         "category": category,
@@ -106,18 +103,20 @@ def waste_estimate(data):
         "All": 5
     }
 
-    waste = sop_base.get(data.q2_sops, 25)
+    waste = sop_base.get(data.get("q2_sops"), 25)
 
-    if data.q8b_severity == "Critical impact":
+    if data.get("q8b_severity") == "Critical impact":
         waste += 20
 
-    if data.q8_duplication == "A lot":
+    if data.get("q8_duplication") == "A lot":
         waste += 15
 
-    if data.q4_automation == "No" and len(data.q6_ai_areas or []) > 2:
+    ai_areas = data.get("q6_ai_areas") or []
+
+    if data.get("q4_automation") == "No" and len(ai_areas) > 2:
         waste += 10
 
-    if data.q7_admin_percent > 50:
+    if data.get("q7_admin_percent", 0) > 50:
         waste += 15
 
     return min(waste, 60)
@@ -127,13 +126,13 @@ def waste_estimate(data):
 # RULE 3.6 — VENDOR RISK
 # =============================
 def vendor_risk(data, bottleneck_category):
-    if data.q8_vendor_backup == "No" and bottleneck_category == "VENDOR":
+    if data.get("q8_vendor_backup") == "No" and bottleneck_category == "VENDOR":
         return {
             "risk": "HIGH",
             "alert": "Vendor single point of failure"
         }
 
-    if data.q8_vendor_backup == "Some":
+    if data.get("q8_vendor_backup") == "Some":
         return {
             "risk": "MEDIUM"
         }
@@ -147,7 +146,10 @@ def vendor_risk(data, bottleneck_category):
 def ai_priority(data, bottleneck_category):
     scores = {}
 
-    for area in data.q6_ai_areas or []:
+    ai_areas = data.get("q6_ai_areas") or []
+    improvements = data.get("q6_perf_improvements") or []
+
+    for area in ai_areas:
         score = 0
 
         if bottleneck_category == "COMMERCIAL" and area == "Sales":
@@ -159,35 +161,38 @@ def ai_priority(data, bottleneck_category):
         if bottleneck_category == "FINANCIAL" and area == "Finance":
             score += 40
 
-        if "Better tools/technology" in data.q6_perf_improvements:
+        if "Better tools/technology" in improvements:
             score += 10
 
-        if "Better processes/workflows" in data.q6_perf_improvements:
-            if area in ["Operations", "Admin"]:
-                score += 30
+        if "Better processes/workflows" in improvements and area in ["Operations", "Admin"]:
+            score += 30
 
-        if data.q7_admin_percent > 50 and area == "Admin":
+        if data.get("q7_admin_percent", 0) > 50 and area == "Admin":
             score += 20
 
-        if data.q4_automation == "No":
+        if data.get("q4_automation") == "No":
             score += 10
 
         scores[area] = score
 
-    sorted_areas = sorted(scores.items(), key=lambda x: x[1], reverse=True)
-
-    return sorted_areas
+    return sorted(scores.items(), key=lambda x: x[1], reverse=True)
 
 
 # =============================
 # RULE 3.8 — READINESS GAP
 # =============================
 def readiness_gap(data):
-    if data.q7_digital_readiness >= 7:
-        if data.q3_tools in ["None", "Not enough"] or data.q4_automation == "No" or data.q2_sops in ["None"]:
+    readiness = data.get("q7_digital_readiness", 0)
+
+    if readiness >= 7:
+        if (
+            data.get("q3_tools") in ["None", "Not enough"]
+            or data.get("q4_automation") == "No"
+            or data.get("q2_sops") in ["None"]
+        ):
             return {
                 "warning": "Digital readiness perception gap",
-                "adjusted_score": data.q7_digital_readiness * 0.6
+                "adjusted_score": readiness * 0.6
             }
 
     return None
@@ -197,7 +202,7 @@ def readiness_gap(data):
 # RULE 3.9 — SOP IMPACT
 # =============================
 def sop_impact(data):
-    if data.q2_sops in ["None", "Some"]:
+    if data.get("q2_sops") in ["None", "Some"]:
         return {
             "systems_cap": 40,
             "accountability_cap": 50,
@@ -248,7 +253,6 @@ def run_silo3(data):
     tm = transformation_management(data)
 
     quadrant = mit_quadrant(di["score"], tm["score"])
-
     bottleneck_data = bottleneck(data)
 
     return {

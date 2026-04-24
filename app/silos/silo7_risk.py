@@ -7,21 +7,25 @@ from typing import Dict, Any, List
 def liability_risk(data):
     prevention = []
 
-    if data.q1_contractor_insurance == "Yes":
+    contractor = data.get("q1_contractor_insurance")
+    vendor_backup = data.get("q8_vendor_backup")
+    pi = data.get("q4_pi_insurance")
+
+    if contractor == "Yes":
         prevention.append("STRONG")
-    elif data.q1_contractor_insurance == "Sometimes":
+    elif contractor == "Sometimes":
         prevention.append("WEAK")
     else:
         prevention.append("ABSENT")
 
-    if data.q8_vendor_backup == "Yes":
+    if vendor_backup == "Yes":
         prevention.append("MODERATE")
     else:
         prevention.append("WEAK")
 
-    if data.q4_pi_insurance == "Yes":
+    if pi == "Yes":
         recovery = "STRONG"
-    elif data.q4_pi_insurance == "Partial":
+    elif pi == "Partial":
         recovery = "MODERATE"
     else:
         recovery = "ABSENT"
@@ -39,7 +43,7 @@ def liability_risk(data):
 # RULE 7.2 — SANCTIONS / AML
 # =============================
 def sanctions_risk(data):
-    if data.q2_sanctions == "None" or data.q3_ubo == "No":
+    if data.get("q2_sanctions") == "None" or data.get("q3_ubo") == "No":
         return {
             "risk": "CRITICAL",
             "alert": "Critical compliance gap — sanctions screening"
@@ -52,9 +56,8 @@ def sanctions_risk(data):
 # RULE 7.3 — FINANCIAL DISTRESS
 # =============================
 def financial_distress(data, silo4=None):
-    runway = data.q5_runway
-    concentration = data.q1_customer_concentration
-    recurring = data.q3_recurring_revenue
+    runway = data.get("q5_runway", 0)
+    concentration = data.get("q1_customer_concentration", 0)
 
     if runway < 3 and concentration >= 50:
         return {
@@ -71,22 +74,22 @@ def financial_distress(data, silo4=None):
 def identify_risks(data):
     risks = []
 
-    if data.q12_owner_dependency == "Yes":
+    if data.get("q12_owner_dependency") == "Yes":
         risks.append(("Strategic", "Likely", "Catastrophic"))
 
-    if data.q5_turnover >= 50:
+    if data.get("q5_turnover", 0) >= 50:
         risks.append(("Operational", "Almost Certain", "Major"))
 
-    if data.q7_knowledge_concentration > 50:
+    if data.get("q7_knowledge_concentration", 0) > 50:
         risks.append(("Operational", "Possible", "Major"))
 
-    if data.q1_customer_concentration >= 50:
+    if data.get("q1_customer_concentration", 0) >= 50:
         risks.append(("Financial", "Possible", "Catastrophic"))
 
-    if data.q2_suspects_waste == "Yes":
+    if data.get("q2_suspects_waste") == "Yes":
         risks.append(("Financial", "Likely", "Moderate"))
 
-    if data.q1_repeat_customers < 25:
+    if data.get("q1_repeat_customers", 0) < 25:
         risks.append(("Financial", "Almost Certain", "Major"))
 
     return risks
@@ -142,26 +145,26 @@ def compliance(data):
         "Manual": 60,
         "Onboarding": 30,
         "None": 0
-    }.get(data.q2_sanctions, 0) * 0.35
+    }.get(data.get("q2_sanctions"), 0) * 0.35
 
     score += {
         "Yes": 100,
         "Sometimes": 40,
         "Bank only": 30,
         "No": 0
-    }.get(data.q3_ubo, 0) * 0.35
+    }.get(data.get("q3_ubo"), 0) * 0.35
 
     score += {
         "Yes": 100,
         "Sometimes": 50,
         "No": 0
-    }.get(data.q1_contractor_insurance, 0) * 0.15
+    }.get(data.get("q1_contractor_insurance"), 0) * 0.15
 
     score += {
         "Yes": 100,
         "Informal": 50,
         "No": 0
-    }.get(data.q6_referral_policy, 0) * 0.15
+    }.get(data.get("q6_referral_policy"), 0) * 0.15
 
     if score >= 75:
         level = "ADVANCED"
@@ -179,10 +182,10 @@ def compliance(data):
 # RULE 7.8 — AML RISK
 # =============================
 def aml(data):
-    if data.q3_ubo == "No" or data.q2_sanctions == "None":
+    if data.get("q3_ubo") == "No" or data.get("q2_sanctions") == "None":
         return "CRITICAL"
 
-    if data.q3_ubo == "Sometimes":
+    if data.get("q3_ubo") == "Sometimes":
         return "HIGH"
 
     return "MEDIUM"
@@ -192,7 +195,7 @@ def aml(data):
 # RULE 7.9 — RESILIENCE
 # =============================
 def resilience(data):
-    runway = data.q5_runway
+    runway = data.get("q5_runway", 0)
 
     if runway >= 12:
         return "STRONG"
@@ -221,6 +224,7 @@ def enterprise_risk(data):
             high += 1
 
     compliance_score = compliance(data)["score"]
+
     resilience_score = {
         "STRONG": 100,
         "MODERATE": 70,

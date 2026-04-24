@@ -5,16 +5,10 @@ from typing import Dict, Any, List
 # RULE 6.1 — RELIABILITY
 # =============================
 def reliability(data, silo3=None):
-    quality_score = (data.q2_quality or 0) / 5 * 50
+    quality = data.get("q2_quality", 0)
+    quality_score = (quality / 5) * 50
 
-    repeat_map = {
-        "over_75": 100,
-        "50_75": 75,
-        "25_50": 50,
-        "under_25": 25
-    }
-
-    repeat_pct = data.q1_repeat_customers
+    repeat_pct = data.get("q1_repeat_customers", 0)
 
     if repeat_pct >= 75:
         repeat_score = 100
@@ -32,7 +26,7 @@ def reliability(data, silo3=None):
         "None": 0
     }
 
-    sop_score = sop_map.get(data.q2_sops, 40)
+    sop_score = sop_map.get(data.get("q2_sops"), 40)
 
     total = quality_score + repeat_score * 0.3 + sop_score * 0.2
 
@@ -46,7 +40,7 @@ def reliability(data, silo3=None):
 # RULE 6.2 — ASSURANCE
 # =============================
 def assurance(data, silo2=None):
-    concentration = data.q7_knowledge_concentration
+    concentration = data.get("q7_knowledge_concentration", 0)
 
     if concentration < 10:
         expertise = 90
@@ -63,13 +57,15 @@ def assurance(data, silo2=None):
         "No": 20
     }
 
-    role_score = role_map.get(data.q3_roles_clear, 20)
+    role_score = role_map.get(data.get("q3_roles_clear"), 20)
 
-    if "Expertise" in (data.q4a_praise or []):
+    praise_list = data.get("q4a_praise") or []
+
+    if "Expertise" in praise_list:
         praise = 90
-    elif "Quality" in (data.q4a_praise or []):
+    elif "Quality" in praise_list:
         praise = 80
-    elif "None" in (data.q4a_praise or []):
+    elif "None" in praise_list:
         praise = 50
     else:
         praise = 60
@@ -84,12 +80,13 @@ def assurance(data, silo2=None):
 # =============================
 def tangibles(data, silo3=None, silo5=None):
     digital = silo3.get("digital_intensity", {}).get("score", 50) if silo3 else 50
+    social = 100 if data.get("q2_social") == "Yes" else 0
 
-    social = 100 if data.q2_social == "Yes" else 0
+    advantages = data.get("q5_competitive_advantage") or []
 
-    if "We don't have a clear competitive advantage" in (data.q5_competitive_advantage or []):
+    if "We don't have a clear competitive advantage" in advantages:
         brand = 40
-    elif data.q5_competitive_advantage:
+    elif advantages:
         brand = 80
     else:
         brand = 60
@@ -103,20 +100,22 @@ def tangibles(data, silo3=None, silo5=None):
 # RULE 6.4 — EMPATHY
 # =============================
 def empathy(data):
-    if any(x in (data.q4a_praise or []) for x in [
+    praise_list = data.get("q4a_praise") or []
+
+    if any(x in praise_list for x in [
         "Customer service",
         "Going above and beyond",
         "Attention to detail"
     ]):
         praise = 90
-    elif "Flexibility" in (data.q4a_praise or []):
+    elif "Flexibility" in praise_list:
         praise = 80
-    elif "None" in (data.q4a_praise or []):
+    elif "None" in praise_list:
         praise = 40
     else:
         praise = 60
 
-    referral = (data.q3_referral or 0) / 5 * 30
+    referral = (data.get("q3_referral", 0) / 5) * 30
 
     understanding_map = {
         "Very clear": 100,
@@ -125,7 +124,7 @@ def empathy(data):
         "Not analyzed": 10
     }
 
-    understanding = understanding_map.get(data.q3_understanding, 30)
+    understanding = understanding_map.get(data.get("q3_understanding"), 30)
 
     total = praise * 0.5 + referral + understanding * 0.2
 
@@ -144,15 +143,17 @@ def responsiveness(data, silo3=None):
         "Critical": 10
     }
 
-    bottleneck = bottleneck_map.get(data.q8b_severity, 50)
+    bottleneck = bottleneck_map.get(data.get("q8b_severity"), 50)
+    automation = 80 if data.get("q4_automation") == "Yes" else 40
 
-    automation = 80 if data.q4_automation == "Yes" else 40
+    praise_list = data.get("q4a_praise") or []
+    complaints = data.get("q4b_complaints") or []
 
-    if "Speed" in (data.q4a_praise or []):
+    if "Speed" in praise_list:
         feedback = 90
-    elif "Delays" in (data.q4b_complaints or []):
+    elif "Delays" in complaints:
         feedback = 20
-    elif "None" in (data.q4a_praise or []):
+    elif "None" in praise_list:
         feedback = 50
     else:
         feedback = 60
@@ -174,7 +175,10 @@ def servqual(data, silo2=None, silo3=None):
 
     avg = (r + a + t + e + rs) / 5
 
-    gap = (data.q3_referral or 0) / 5 - ((5 - (data.q2_quality or 0)) / 5)
+    referral = data.get("q3_referral", 0)
+    quality = data.get("q2_quality", 0)
+
+    gap = (referral / 5) - ((5 - quality) / 5)
 
     return {
         "score": avg,
@@ -187,7 +191,7 @@ def servqual(data, silo2=None, silo3=None):
 # RULE 6.7 — CLV
 # =============================
 def clv(data, silo4=None):
-    repeat = data.q1_repeat_customers
+    repeat = data.get("q1_repeat_customers", 0)
 
     if repeat >= 75:
         lifespan = 60
@@ -198,7 +202,7 @@ def clv(data, silo4=None):
     else:
         lifespan = 12
 
-    recurring = data.q3_recurring_revenue
+    recurring = data.get("q3_recurring_revenue", 0)
 
     if recurring >= 75:
         freq = 12
@@ -230,7 +234,9 @@ def clv(data, silo4=None):
 # RULE 6.8 — CLV IMPACT
 # =============================
 def clv_impact(clv_data, data):
-    if clv_data["segment"] in ["LOW", "MEDIUM"] and data.q1_repeat_customers < 50:
+    repeat = data.get("q1_repeat_customers", 0)
+
+    if clv_data["segment"] in ["LOW", "MEDIUM"] and repeat < 50:
         return "Shift focus to retention"
 
     if clv_data["segment"] in ["HIGH", "PREMIUM"]:
@@ -243,7 +249,7 @@ def clv_impact(clv_data, data):
 # RULE 6.9 — RETENTION
 # =============================
 def retention(data):
-    repeat = data.q1_repeat_customers
+    repeat = data.get("q1_repeat_customers", 0)
 
     if repeat >= 75:
         return "EXCELLENT"
@@ -259,8 +265,11 @@ def retention(data):
 # RULE 6.10 — NPS
 # =============================
 def nps(data):
-    promoter = (data.q3_referral or 0) / 5 * 100
-    detractor = ((5 - (data.q2_quality or 0)) / 5) * 30
+    referral = data.get("q3_referral", 0)
+    quality = data.get("q2_quality", 0)
+
+    promoter = (referral / 5) * 100
+    detractor = ((5 - quality) / 5) * 30
 
     score = promoter - detractor
 
@@ -298,5 +307,5 @@ def run_silo6(data, silo2=None, silo3=None, silo4=None):
         "clv_impact": clv_impact(clv_data, data),
         "retention": retention(data),
         "nps": nps(data),
-        "repeat_score": data.q1_repeat_customers
+        "repeat_score": data.get("q1_repeat_customers", 0)
     }

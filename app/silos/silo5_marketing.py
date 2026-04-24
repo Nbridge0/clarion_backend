@@ -5,7 +5,8 @@ from typing import Dict, Any, List
 # RULE 5.1 — SEGMENTATION
 # =============================
 def segmentation(data):
-    count = len(data.q4_segments or [])
+    segments = data.get("q4_segments") or []
+    count = len(segments)
 
     if count <= 3:
         return {"score": 90, "level": "FOCUSED"}
@@ -24,13 +25,13 @@ def segmentation(data):
 # =============================
 def targeting(data):
     # Q3a
-    if data.q3_primary_target == "Multiple":
+    if data.get("q3_primary_target") == "Multiple":
         clarity = 40
     else:
         clarity = 90
 
     # Q3b
-    if data.q3_objection == "None":
+    if data.get("q3_objection") == "None":
         objection = 60
     else:
         objection = 80
@@ -42,7 +43,8 @@ def targeting(data):
         "Unclear": 30,
         "Not analyzed": 10
     }
-    understanding = understanding_map.get(data.q3_understanding, 30)
+
+    understanding = understanding_map.get(data.get("q3_understanding"), 30)
 
     score = (clarity * 0.4 + objection * 0.35 + understanding * 0.25)
 
@@ -53,15 +55,15 @@ def targeting(data):
 # RULE 5.3 — POSITIONING
 # =============================
 def positioning(data, silo1=None):
-    # competitive advantage
     adv = silo1.get("shared_values", {}).get("score", 50) if silo1 else 50
 
-    # alignment
-    aligned = data.q7_strength in data.q5_competitive_advantage
+    advantages = data.get("q5_competitive_advantage") or []
+    strength = data.get("q7_strength")
+
+    aligned = strength in advantages
     alignment_score = 90 if aligned else 50
 
-    # objection handling
-    if data.q3_objection == "None":
+    if data.get("q3_objection") == "None":
         objection_score = 70
     else:
         objection_score = 40
@@ -90,11 +92,12 @@ def stp_alignment(seg, tar, pos):
 # RULE 5.5 — ACQUISITION
 # =============================
 def acquisition(data):
-    channels = len((data.q5_channels or []) + (data.q6_channels or []))
+    channels = (data.get("q5_channels") or []) + (data.get("q6_channels") or [])
+    channel_count = len(channels)
 
-    if channels <= 4:
+    if channel_count <= 4:
         penalty = 0
-    elif channels <= 7:
+    elif channel_count <= 7:
         penalty = 0.2
     else:
         penalty = 0.5
@@ -107,9 +110,8 @@ def acquisition(data):
         "80-100": 90
     }
 
-    inbound = inbound_map.get(data.q1_inbound, 50)
-
-    social = 100 if data.q2_social == "Yes" else 0
+    inbound = inbound_map.get(data.get("q1_inbound"), 50)
+    social = 100 if data.get("q2_social") == "Yes" else 0
 
     score = inbound * 0.4 + social * 0.2 + (100 * (1 - penalty)) * 0.4
 
@@ -128,7 +130,7 @@ def lead_balance(data):
         "80-100": 90
     }
 
-    midpoint = inbound_map.get(data.q1_inbound, 50)
+    midpoint = inbound_map.get(data.get("q1_inbound"), 50)
 
     if midpoint >= 70:
         return "INBOUND_DOMINANT"
@@ -144,13 +146,16 @@ def lead_balance(data):
 def channel_alignment(data):
     recommendations = []
 
-    for seg in data.q4_segments:
+    segments = data.get("q4_segments") or []
+    channels = data.get("q6_channels") or []
+
+    for seg in segments:
         if seg in ["Captains", "HoD"]:
             expected = ["Networking", "Events"]
         else:
             expected = ["Social", "SEO"]
 
-        if not any(ch in data.q6_channels for ch in expected):
+        if not any(ch in channels for ch in expected):
             recommendations.append(f"Missing channels for {seg}")
 
     return recommendations
@@ -162,9 +167,11 @@ def channel_alignment(data):
 def objection_analysis(data):
     high = ["Price", "Value", "Product"]
 
-    if data.q3_objection in high:
+    objection = data.get("q3_objection")
+
+    if objection in high:
         return {"severity": "HIGH"}
-    elif data.q3_objection == "None":
+    elif objection == "None":
         return {"severity": "LOW"}
     else:
         return {"severity": "MEDIUM"}
@@ -174,7 +181,7 @@ def objection_analysis(data):
 # RULE 5.9 — REVENUE SCORE
 # =============================
 def revenue_score(data, silo4=None, silo6=None):
-    recurring = data.q3_recurring_revenue
+    recurring = data.get("q3_recurring_revenue", 0)
     concentration = silo4.get("concentration", {}).get("score", 50) if silo4 else 50
     repeat = silo6.get("repeat_score", 50) if silo6 else 50
 

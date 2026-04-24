@@ -1,17 +1,17 @@
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any
 
 # =============================
 # RULE 1.1 — STRATEGIC CLARITY
 # =============================
-def strategic_clarity(data):
-    if data.q10_written_strategy == "Yes" and data.q9_employee_understanding in ["Yes", "Some"]:
+def strategic_clarity(data: Dict[str, Any]):
+    if data.get("q10_written_strategy") == "Yes" and data.get("q9_employee_understanding") in ["Yes", "Some"]:
         return {
             "level": "HIGH",
             "score": 90,
             "insight": "Clear documented strategy with team alignment"
         }
 
-    if data.q10_written_strategy == "No" and data.q9_employee_understanding == "No":
+    if data.get("q10_written_strategy") == "No" and data.get("q9_employee_understanding") == "No":
         return {
             "level": "CRITICAL",
             "score": 20,
@@ -47,8 +47,8 @@ COMMODITY = [
 NO_ADVANTAGE = "We don't have a clear competitive advantage"
 
 
-def shared_values(data):
-    selections = data.q5_competitive_advantage or []
+def shared_values(data: Dict[str, Any]):
+    selections = data.get("q5_competitive_advantage", [])
 
     if NO_ADVANTAGE in selections:
         return {
@@ -80,7 +80,7 @@ def shared_values(data):
         score = 50
         insight = "Unclear competitive positioning"
 
-    if score >= 70 and data.q9_employee_understanding == "Yes":
+    if score >= 70 and data.get("q9_employee_understanding") == "Yes":
         strength = "STRONG"
     elif score >= 70:
         strength = "MODERATE"
@@ -97,25 +97,22 @@ def shared_values(data):
 # =============================
 # RULE 1.3 — STAFF ALIGNMENT
 # =============================
-def staff_alignment(data):
+def staff_alignment(data: Dict[str, Any]):
     score = 0
 
-    # employee understanding
-    if data.q9_employee_understanding == "Yes":
+    if data.get("q9_employee_understanding") == "Yes":
         score += 40
-    elif data.q9_employee_understanding == "Some":
+    elif data.get("q9_employee_understanding") == "Some":
         score += 20
 
-    # admin burden
-    if data.q7_admin_percent < 30:
+    if data.get("q7_admin_percent", 0) < 30:
         score += 30
-    elif data.q7_admin_percent < 50:
+    elif data.get("q7_admin_percent", 0) < 50:
         score += 15
 
-    # owner dependency
-    if data.q12_owner_dependency == "No":
+    if data.get("q12_owner_dependency") == "No":
         score += 30
-    elif data.q12_owner_dependency == "Some":
+    elif data.get("q12_owner_dependency") == "Some":
         score += 15
 
     return {
@@ -127,10 +124,10 @@ def staff_alignment(data):
 # =============================
 # RULE 1.4 — SYSTEMS
 # =============================
-def systems_efficiency(data):
-    if data.q8_duplication == "A lot":
+def systems_efficiency(data: Dict[str, Any]):
+    if data.get("q8_duplication") == "A lot":
         return 50
-    elif data.q8_duplication == "Some":
+    elif data.get("q8_duplication") == "Some":
         return 75
     return 100
 
@@ -138,21 +135,20 @@ def systems_efficiency(data):
 # =============================
 # RULE 1.5 — SWOT STRENGTHS
 # =============================
-def swot_strengths(data, silo6=None):
+def swot_strengths(data: Dict[str, Any], silo6=None):
     strengths = []
 
-    strengths.append(data.q5_competitive_advantage)
-    strengths.append(data.q7_strength)
+    strengths.append(data.get("q5_competitive_advantage"))
+    strengths.append(data.get("q7_strength"))
 
-    if data.q6_growth_confidence >= 4:
+    if data.get("q6_growth_confidence", 0) >= 4:
         strengths.append("Strong market position confidence")
 
-    # Cross Silo (if available)
     if silo6:
-        if data.q7_strength == "Our customer relationships" and silo6.get("repeat_pct", 0) >= 75:
+        if data.get("q7_strength") == "Our customer relationships" and silo6.get("repeat_pct", 0) >= 75:
             strengths.append("Strong customer loyalty")
 
-        if data.q7_strength == "Our reputation/brand" and silo6.get("referral_freq", 0) >= 4:
+        if data.get("q7_strength") == "Our reputation/brand" and silo6.get("referral_freq", 0) >= 4:
             strengths.append("Strong brand advocacy")
 
     return strengths
@@ -171,22 +167,22 @@ CHALLENGE_MAP = {
 }
 
 
-def swot_weaknesses(data):
+def swot_weaknesses(data: Dict[str, Any]):
     weaknesses = []
 
-    if data.q7_admin_percent > 50:
+    if data.get("q7_admin_percent", 0) > 50:
         weaknesses.append("High administrative burden")
 
-    if data.q8_duplication == "A lot":
+    if data.get("q8_duplication") == "A lot":
         weaknesses.append("Process duplication")
 
-    if data.q10_written_strategy == "No":
+    if data.get("q10_written_strategy") == "No":
         weaknesses.append("Lack of strategic documentation")
 
-    if data.q12_owner_dependency == "Yes":
+    if data.get("q12_owner_dependency") == "Yes":
         weaknesses.append("Owner dependency risk")
 
-    challenge = getattr(data, "q9_biggest_challenge", None)
+    challenge = data.get("q9_biggest_challenge")
 
     if challenge in CHALLENGE_MAP:
         weaknesses.append(CHALLENGE_MAP[challenge])
@@ -210,13 +206,13 @@ OPPORTUNITY_MAP = {
 }
 
 
-def swot_opportunities(data):
+def swot_opportunities(data: Dict[str, Any]):
     ops = []
 
-    for o in data.q11_growth_opportunities:
+    for o in data.get("q11_growth_opportunities", []):
         ops.append(OPPORTUNITY_MAP.get(o, o))
 
-    if data.q7_admin_percent > 40:
+    if data.get("q7_admin_percent", 0) > 40:
         ops.append("High ROI opportunity from automation")
 
     return ops
@@ -225,15 +221,15 @@ def swot_opportunities(data):
 # =============================
 # RULE 1.8 — SWOT THREATS
 # =============================
-def swot_threats(data):
+def swot_threats(data: Dict[str, Any]):
     threats = []
 
-    threats.extend(data.q3_competitors or [])
+    threats.extend(data.get("q3_competitors", []))
 
-    if data.q9_employee_understanding == "No":
+    if data.get("q9_employee_understanding") == "No":
         threats.append("Strategic misalignment threatening execution")
 
-    if data.q12_owner_dependency == "Yes":
+    if data.get("q12_owner_dependency") == "Yes":
         threats.append("Succession crisis risk")
 
     return threats
@@ -242,28 +238,16 @@ def swot_threats(data):
 # =============================
 # RULE 1.9 — 7S ALIGNMENT
 # =============================
-def seven_s_alignment(data, silo2=None, silo3=None):
+def seven_s_alignment(data: Dict[str, Any], silo2=None, silo3=None):
     scores = []
 
-    # Strategy
-    scores.append(90 if data.q10_written_strategy == "Yes" else 40)
-
-    # Systems
+    scores.append(90 if data.get("q10_written_strategy") == "Yes" else 40)
     scores.append(systems_efficiency(data))
-
-    # Shared Values
     scores.append(shared_values(data)["score"])
-
-    # Staff
     scores.append(staff_alignment(data)["score"])
 
-    # Structure (from Silo 3 if available)
     scores.append(silo3.get("structure", 60) if silo3 else 60)
-
-    # Style (based on leadership issues proxy)
-    scores.append(40 if data.q9_employee_understanding == "No" else 70)
-
-    # Skills (from Silo 2)
+    scores.append(40 if data.get("q9_employee_understanding") == "No" else 70)
     scores.append(silo2.get("skills", 60) if silo2 else 60)
 
     avg = sum(scores) / len(scores)
@@ -275,23 +259,22 @@ def seven_s_alignment(data, silo2=None, silo3=None):
 
 
 # =============================
-# RULE 1.10 — GROWTH REALITY CHECK
+# RULE 1.10 — GROWTH CHECK
 # =============================
-def growth_check(data, silo7=None):
+def growth_check(data: Dict[str, Any], silo7=None):
     warnings = []
 
-    if data.q6_growth_confidence >= 4:
+    if data.get("q6_growth_confidence", 0) >= 4:
 
-        if data.q10_written_strategy == "No":
+        if data.get("q10_written_strategy") == "No":
             warnings.append("Growth confidence not supported by strategy")
 
-        if data.q9_employee_understanding == "No":
+        if data.get("q9_employee_understanding") == "No":
             warnings.append("Team not aligned with growth strategy")
 
-        if data.q12_owner_dependency == "Yes":
+        if data.get("q12_owner_dependency") == "Yes":
             warnings.append("Owner dependency limits scalability")
 
-    # Capital constraint
     capital_intensive = [
         "Geographic expansion",
         "Acquiring competitors/businesses",
@@ -301,7 +284,7 @@ def growth_check(data, silo7=None):
     if silo7:
         runway = silo7.get("runway_months", 12)
 
-        if any(x in data.q11_growth_opportunities for x in capital_intensive) and runway < 6:
+        if any(x in data.get("q11_growth_opportunities", []) for x in capital_intensive) and runway < 6:
             warnings.append("Growth strategy requires capital not currently available")
 
     return warnings

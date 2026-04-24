@@ -1,275 +1,302 @@
-from app.types.results import Insight
+from typing import Dict, Any, List
 
 
-def process_service_silo(data, twin):
-    """
-    FULL IMPLEMENTATION:
-    Rule 6.1 → 6.10
-    """
+# =============================
+# RULE 6.1 — RELIABILITY
+# =============================
+def reliability(data, silo3=None):
+    quality_score = (data.q2_quality or 0) / 5 * 50
 
-    Q1 = data.get("repeat_customers", 0)  # %
-    Q2 = data.get("quality_consistency", 3)  # 1–5
-    Q3 = data.get("referral_frequency", 3)  # 1–5
-    Q4a = data.get("praise", [])
-    Q4b = data.get("complaints", [])
+    repeat_map = {
+        "over_75": 100,
+        "50_75": 75,
+        "25_50": 50,
+        "under_25": 25
+    }
 
-    silo = {}
+    repeat_pct = data.q1_repeat_customers
 
-    # =========================================================
-    # RULE 6.1 — RELIABILITY
-    # =========================================================
-    quality_score = (Q2 / 5) * 50
-
-    if Q1 >= 75:
+    if repeat_pct >= 75:
         repeat_score = 100
-    elif Q1 >= 50:
+    elif repeat_pct >= 50:
         repeat_score = 75
-    elif Q1 >= 25:
+    elif repeat_pct >= 25:
         repeat_score = 50
     else:
         repeat_score = 25
 
-    sop = twin.silos.get("efficiency", {}).get("transformation_management", 50)
+    sop_map = {
+        "All": 100,
+        "Most": 75,
+        "Some": 40,
+        "None": 0
+    }
 
-    reliability = quality_score + (repeat_score * 0.3) + (sop * 0.2)
+    sop_score = sop_map.get(data.q2_sops, 40)
 
-    silo["reliability"] = reliability
+    total = quality_score + repeat_score * 0.3 + sop_score * 0.2
 
-    if reliability < 60:
-        twin.insights.append(Insight(
-            "Service reliability is weak — standardization required",
-            "Rule 6.1",
-            "HIGH"
-        ))
+    return {
+        "score": total,
+        "alert": "Standardize service delivery" if total < 60 else None
+    }
 
-    # =========================================================
-    # RULE 6.2 — ASSURANCE
-    # =========================================================
-    knowledge = twin.silos.get("hr", {}).get("knowledge_concentration", 50)
 
-    if knowledge < 10:
+# =============================
+# RULE 6.2 — ASSURANCE
+# =============================
+def assurance(data, silo2=None):
+    concentration = data.q7_knowledge_concentration
+
+    if concentration < 10:
         expertise = 90
-    elif knowledge < 25:
+    elif concentration < 25:
         expertise = 70
-    elif knowledge < 50:
+    elif concentration < 50:
         expertise = 50
     else:
         expertise = 30
 
-    role_clarity = twin.silos.get("hr", {}).get("role_clarity", "No")
-
-    role_score = {
+    role_map = {
         "Yes": 100,
         "Some": 60,
         "No": 20
-    }.get(role_clarity, 20)
+    }
 
-    if any(x in Q4a for x in ["Expertise", "Professionalism"]):
-        praise_score = 90
-    elif any(x in Q4a for x in ["Quality"]):
-        praise_score = 80
-    elif any(x in Q4b for x in ["Quality", "Communication"]):
-        praise_score = 30
-    elif "We don't track this" in Q4a or "We don't track this" in Q4b:
-        praise_score = 50
+    role_score = role_map.get(data.q3_roles_clear, 20)
+
+    if "Expertise" in (data.q4a_praise or []):
+        praise = 90
+    elif "Quality" in (data.q4a_praise or []):
+        praise = 80
+    elif "None" in (data.q4a_praise or []):
+        praise = 50
     else:
-        praise_score = 60
+        praise = 60
 
-    assurance = expertise * 0.4 + role_score * 0.3 + praise_score * 0.3
+    total = expertise * 0.4 + role_score * 0.3 + praise * 0.3
 
-    silo["assurance"] = assurance
+    return {"score": total}
 
-    # =========================================================
-    # RULE 6.3 — TANGIBLES
-    # =========================================================
-    digital = twin.silos.get("efficiency", {}).get("digital_intensity", 50)
 
-    social = twin.silos.get("marketing", {}).get("acquisition_score", 0)
-    social_score = 100 if social > 0 else 0
+# =============================
+# RULE 6.3 — TANGIBLES
+# =============================
+def tangibles(data, silo3=None, silo5=None):
+    digital = silo3.get("digital_intensity", {}).get("score", 50) if silo3 else 50
 
-    comp_adv = twin.silos.get("strategy", {}).get("shared_values_score", 50)
+    social = 100 if data.q2_social == "Yes" else 0
 
-    if comp_adv >= 70:
-        brand = 80
-    elif comp_adv <= 10:
+    if "We don't have a clear competitive advantage" in (data.q5_competitive_advantage or []):
         brand = 40
+    elif data.q5_competitive_advantage:
+        brand = 80
     else:
         brand = 60
 
-    tangibles = digital * 0.4 + social_score * 0.3 + brand * 0.3
+    total = digital * 0.4 + social * 0.3 + brand * 0.3
 
-    silo["tangibles"] = tangibles
+    return {"score": total}
 
-    # =========================================================
-    # RULE 6.4 — EMPATHY
-    # =========================================================
-    if any(x in Q4a for x in ["Customer service", "Attention", "Going above"]):
-        empathy_score = 90
-    elif any(x in Q4a for x in ["Flexibility"]):
-        empathy_score = 80
-    elif any(x in Q4b for x in ["Communication", "Follow-up", "Complexity"]):
-        empathy_score = 20
-    elif "We don't track this" in Q4a:
-        empathy_score = 40
+
+# =============================
+# RULE 6.4 — EMPATHY
+# =============================
+def empathy(data):
+    if any(x in (data.q4a_praise or []) for x in [
+        "Customer service",
+        "Going above and beyond",
+        "Attention to detail"
+    ]):
+        praise = 90
+    elif "Flexibility" in (data.q4a_praise or []):
+        praise = 80
+    elif "None" in (data.q4a_praise or []):
+        praise = 40
     else:
-        empathy_score = 60
+        praise = 60
 
-    referral_score = (Q3 / 5) * 100
+    referral = (data.q3_referral or 0) / 5 * 30
 
     understanding_map = {
         "Very clear": 100,
         "Somewhat clear": 60,
         "Unclear": 30,
-        "We haven't analyzed this": 10
+        "Not analyzed": 10
     }
 
-    understanding = understanding_map.get(
-        twin.silos.get("marketing", {}).get("customer_understanding", "Unclear"), 30
-    )
+    understanding = understanding_map.get(data.q3_understanding, 30)
 
-    empathy = empathy_score * 0.5 + referral_score * 0.3 + understanding * 0.2
+    total = praise * 0.5 + referral + understanding * 0.2
 
-    silo["empathy"] = empathy
+    return {"score": total}
 
-    # =========================================================
-    # RULE 6.5 — RESPONSIVENESS
-    # =========================================================
-    bottleneck_severity = twin.silos.get("efficiency", {}).get("bottleneck_severity", "")
 
-    severity_map = {
-        "No significant bottleneck": 100,
-        "Minor annoyance": 70,
-        "Moderate impact": 50,
-        "Major impact": 30,
-        "Critical impact": 10
+# =============================
+# RULE 6.5 — RESPONSIVENESS
+# =============================
+def responsiveness(data, silo3=None):
+    bottleneck_map = {
+        "None": 100,
+        "Minor": 70,
+        "Moderate": 50,
+        "Major": 30,
+        "Critical": 10
     }
 
-    bottleneck_score = severity_map.get(bottleneck_severity, 50)
+    bottleneck = bottleneck_map.get(data.q8b_severity, 50)
 
-    automation = twin.silos.get("efficiency", {}).get("digital_intensity", 50)
-    automation_score = 80 if automation > 50 else 40
+    automation = 80 if data.q4_automation == "Yes" else 40
 
-    if any("Speed" in x for x in Q4a):
-        feedback_score = 90
-    elif any("Delays" in x for x in Q4b):
-        feedback_score = 20
-    elif "We don't track this" in Q4a:
-        feedback_score = 50
+    if "Speed" in (data.q4a_praise or []):
+        feedback = 90
+    elif "Delays" in (data.q4b_complaints or []):
+        feedback = 20
+    elif "None" in (data.q4a_praise or []):
+        feedback = 50
     else:
-        feedback_score = 60
+        feedback = 60
 
-    responsiveness = bottleneck_score * 0.4 + automation_score * 0.3 + feedback_score * 0.3
+    total = bottleneck * 0.4 + automation * 0.3 + feedback * 0.3
 
-    silo["responsiveness"] = responsiveness
+    return {"score": total}
 
-    # =========================================================
-    # RULE 6.6 — OVERALL SERVQUAL
-    # =========================================================
-    overall = (reliability + assurance + tangibles + empathy + responsiveness) / 5
 
-    silo["service_quality"] = overall
+# =============================
+# RULE 6.6 — SERVQUAL
+# =============================
+def servqual(data, silo2=None, silo3=None):
+    r = reliability(data, silo3)["score"]
+    a = assurance(data, silo2)["score"]
+    t = tangibles(data, silo3)["score"]
+    e = empathy(data)["score"]
+    rs = responsiveness(data, silo3)["score"]
 
-    expectation_gap = (Q3 / 5) - ((5 - Q2) / 5)
+    avg = (r + a + t + e + rs) / 5
 
-    if expectation_gap < -0.3:
-        twin.insights.append(Insight(
-            "Critical service gap — expectations exceed delivery",
-            "Rule 6.6",
-            "CRITICAL"
-        ))
+    gap = (data.q3_referral or 0) / 5 - ((5 - (data.q2_quality or 0)) / 5)
 
-    if expectation_gap > 0.3:
-        twin.insights.append(Insight(
-            "Exceeding expectations — pricing opportunity",
-            "Rule 6.6",
-            "HIGH"
-        ))
+    return {
+        "score": avg,
+        "gap": gap,
+        "alert": "Critical service gap" if gap < -0.3 else None
+    }
 
-    # =========================================================
-    # RULE 6.7 — CLV
-    # =========================================================
-    if Q1 >= 75:
+
+# =============================
+# RULE 6.7 — CLV
+# =============================
+def clv(data, silo4=None):
+    repeat = data.q1_repeat_customers
+
+    if repeat >= 75:
         lifespan = 60
-        freq = 12
-    elif Q1 >= 50:
+    elif repeat >= 50:
         lifespan = 36
-        freq = 6
-    elif Q1 >= 25:
+    elif repeat >= 25:
         lifespan = 18
-        freq = 4
     else:
         lifespan = 12
+
+    recurring = data.q3_recurring_revenue
+
+    if recurring >= 75:
+        freq = 12
+    elif recurring >= 50:
+        freq = 6
+    elif recurring >= 25:
+        freq = 4
+    else:
         freq = 2
 
-    clv_score = (lifespan * freq) / 100
+    score = (lifespan * freq) / 100
 
-    if clv_score >= 6:
-        clv_segment = "PREMIUM"
-    elif clv_score >= 3:
-        clv_segment = "HIGH"
-    elif clv_score >= 1.5:
-        clv_segment = "MEDIUM"
+    if score >= 6:
+        segment = "PREMIUM"
+    elif score >= 3:
+        segment = "HIGH"
+    elif score >= 1.5:
+        segment = "MEDIUM"
     else:
-        clv_segment = "LOW"
+        segment = "LOW"
 
-    silo["clv"] = clv_score
-    silo["clv_segment"] = clv_segment
+    return {
+        "score": score,
+        "segment": segment
+    }
 
-    # =========================================================
-    # RULE 6.8 — CLV STRATEGY
-    # =========================================================
-    if clv_segment in ["LOW", "MEDIUM"] and Q1 < 50:
-        twin.insights.append(Insight(
-            "CLV too low — shift to retention strategy",
-            "Rule 6.8",
-            "HIGH"
-        ))
 
-    if clv_segment in ["HIGH", "PREMIUM"]:
-        twin.insights.append(Insight(
-            "High-value customers — consider VIP programs",
-            "Rule 6.8",
-            "MEDIUM"
-        ))
+# =============================
+# RULE 6.8 — CLV IMPACT
+# =============================
+def clv_impact(clv_data, data):
+    if clv_data["segment"] in ["LOW", "MEDIUM"] and data.q1_repeat_customers < 50:
+        return "Shift focus to retention"
 
-    # =========================================================
-    # RULE 6.9 — RETENTION HEALTH
-    # =========================================================
-    if Q1 >= 75:
-        retention = "EXCELLENT"
-    elif Q1 >= 50:
-        retention = "GOOD"
-    elif Q1 >= 25:
-        retention = "FAIR"
+    if clv_data["segment"] in ["HIGH", "PREMIUM"]:
+        return "Invest in high-value customers"
+
+    return None
+
+
+# =============================
+# RULE 6.9 — RETENTION
+# =============================
+def retention(data):
+    repeat = data.q1_repeat_customers
+
+    if repeat >= 75:
+        return "EXCELLENT"
+    elif repeat >= 50:
+        return "GOOD"
+    elif repeat >= 25:
+        return "FAIR"
     else:
-        retention = "POOR"
+        return "POOR"
 
-        twin.insights.append(Insight(
-            "Critical retention problem",
-            "Rule 6.9",
-            "CRITICAL"
-        ))
 
-    silo["retention"] = retention
+# =============================
+# RULE 6.10 — NPS
+# =============================
+def nps(data):
+    promoter = (data.q3_referral or 0) / 5 * 100
+    detractor = ((5 - (data.q2_quality or 0)) / 5) * 30
 
-    # =========================================================
-    # RULE 6.10 — NPS
-    # =========================================================
-    promoter = (Q3 / 5) * 100
-    detractor = ((5 - Q2) / 5) * 30
+    score = promoter - detractor
 
-    nps = promoter - detractor
+    if score >= 50:
+        level = "EXCELLENT"
+    elif score >= 20:
+        level = "GOOD"
+    elif score >= 0:
+        level = "NEEDS_IMPROVEMENT"
+    else:
+        level = "CRITICAL"
 
-    silo["nps"] = nps
+    return {
+        "score": score,
+        "level": level
+    }
 
-    if nps < 0:
-        twin.insights.append(Insight(
-            "Customer satisfaction crisis",
-            "Rule 6.10",
-            "CRITICAL"
-        ))
 
-    # =========================================================
-    # SAVE SILO
-    # =========================================================
-    twin.silos["service"] = silo
+# =============================
+# MAIN
+# =============================
+def run_silo6(data, silo2=None, silo3=None, silo4=None):
+
+    serv = servqual(data, silo2, silo3)
+    clv_data = clv(data, silo4)
+
+    return {
+        "reliability": reliability(data, silo3),
+        "assurance": assurance(data, silo2),
+        "tangibles": tangibles(data, silo3),
+        "empathy": empathy(data),
+        "responsiveness": responsiveness(data, silo3),
+        "servqual": serv,
+        "clv": clv_data,
+        "clv_impact": clv_impact(clv_data, data),
+        "retention": retention(data),
+        "nps": nps(data),
+        "repeat_score": data.q1_repeat_customers
+    }

@@ -1,258 +1,238 @@
-from app.types.results import Insight, RiskItem
+from typing import Dict, Any
 
 
-def process_financial_silo(data, twin):
-    """
-    FULL IMPLEMENTATION:
-    Rule 4.1 → 4.11
-    """
+# =============================
+# RULE 4.1 — REVENUE CONCENTRATION
+# =============================
+def revenue_concentration(data):
+    pct = data.q1_customer_concentration
 
-    Q1 = data.get("customer_concentration", 0)  # % of revenue from top customer
-    Q2 = data.get("suspects_waste", "No")  # Yes / No
-    Q3 = data.get("recurring_revenue", 0)  # %
-    revenue = data.get("revenue", 1000000)  # fallback default
-
-    silo = {}
-
-    # =========================================================
-    # RULE 4.1 — REVENUE CONCENTRATION RISK
-    # =========================================================
-    if Q1 > 75:
-        concentration_score = 10
-        risk_level = "CRITICAL"
-
-        twin.insights.append(Insight(
-            "Customer concentration crisis",
-            "Rule 4.1",
-            "CRITICAL"
-        ))
-
-    elif Q1 >= 50:
-        concentration_score = 30
-        risk_level = "HIGH"
-
-        twin.insights.append(Insight(
-            "Urgent customer diversification required",
-            "Rule 4.1",
-            "HIGH"
-        ))
-
-    elif Q1 >= 25:
-        concentration_score = 50
-        risk_level = "MODERATE"
-
-    elif Q1 >= 15:
-        concentration_score = 80
-        risk_level = "LOW"
-
+    if pct > 75:
+        return {"risk": "CRITICAL", "score": 10}
+    elif pct >= 50:
+        return {"risk": "HIGH", "score": 30}
+    elif pct >= 25:
+        return {"risk": "MODERATE", "score": 50}
+    elif pct >= 15:
+        return {"risk": "LOW", "score": 80}
     else:
-        concentration_score = 100
-        risk_level = "LOW"
+        return {"risk": "LOW", "score": 100}
 
-    silo["concentration_score"] = concentration_score
-    silo["concentration_risk"] = risk_level
 
-    # =========================================================
-    # RULE 4.2 — CROSS-SILO ALERTS
-    # =========================================================
-    if risk_level in ["HIGH", "CRITICAL"]:
-        twin.insights.append(Insight(
-            "Strategy must prioritize customer diversification",
-            "Rule 4.2",
-            "HIGH"
-        ))
+# =============================
+# RULE 4.3 — BUSINESS MODEL
+# =============================
+def business_model(data):
+    recurring = data.q3_recurring_revenue
 
-        twin.swot["threats"].append("Customer concentration vulnerability")
-        twin.swot["opportunities"].append("Market expansion to reduce concentration")
-
-    # =========================================================
-    # RULE 4.3 — BUSINESS MODEL CLASSIFICATION
-    # =========================================================
-    if Q3 >= 75:
-        model = "SUBSCRIPTION"
-        predictability = "HIGH"
-
-    elif Q3 >= 25:
-        model = "HYBRID"
-        predictability = "MEDIUM"
-
+    if recurring >= 75:
+        return {"type": "SUBSCRIPTION", "predictability": "HIGH"}
+    elif recurring >= 25:
+        return {"type": "HYBRID", "predictability": "MEDIUM"}
     else:
-        model = "PROJECT"
-        predictability = "LOW"
+        return {"type": "PROJECT", "predictability": "LOW"}
 
-        twin.insights.append(Insight(
-            "Revenue is unpredictable — develop recurring streams",
-            "Rule 4.3",
-            "HIGH"
-        ))
 
-    silo["business_model"] = model
-    silo["revenue_predictability"] = predictability
+# =============================
+# RULE 4.4 — CASH CONVERSION CYCLE
+# =============================
+def cash_conversion_cycle(data):
+    model = business_model(data)["type"]
 
-    # =========================================================
-    # RULE 4.4 — CASH CONVERSION CYCLE (CCC)
-    # =========================================================
-    DIO = 0  # service business
+    DIO = 0
 
-    if Q3 >= 75:
+    if model == "SUBSCRIPTION":
         DSO = 15
-    elif Q3 >= 25:
+    elif model == "HYBRID":
         DSO = 45
     else:
         DSO = 60
 
-    if Q2 == "Yes":
+    if data.q2_suspects_waste == "Yes":
         DSO += 20
 
     DPO = 30
 
-    CCC = DIO + DSO - DPO
+    ccc = DIO + DSO - DPO
 
-    silo["ccc"] = CCC
+    return {
+        "ccc_days": ccc,
+        "DSO": DSO
+    }
 
-    # =========================================================
-    # RULE 4.5 — WORKING CAPITAL EFFICIENCY
-    # =========================================================
-    if CCC <= 20:
-        wc_eff = "EXCELLENT"
-        wc_score = 100
 
-    elif CCC <= 40:
-        wc_eff = "GOOD"
-        wc_score = 75
-
-    elif CCC <= 60:
-        wc_eff = "POOR"
-        wc_score = 50
-
+# =============================
+# RULE 4.5 — WORKING CAPITAL
+# =============================
+def working_capital_efficiency(ccc):
+    if ccc <= 20:
+        return "EXCELLENT"
+    elif ccc <= 40:
+        return "GOOD"
+    elif ccc <= 60:
+        return "POOR"
     else:
-        wc_eff = "CRITICAL"
-        wc_score = 25
+        return "CRITICAL"
 
-        twin.insights.append(Insight(
-            "Cash flow risk detected — slow cash conversion",
-            "Rule 4.5",
-            "CRITICAL"
-        ))
 
-    silo["working_capital_efficiency"] = wc_eff
+# =============================
+# RULE 4.6 — NET PROFIT MARGIN
+# =============================
+def net_profit_margin(data, silo1=None, silo3=None):
+    npm = 15.0
 
-    # =========================================================
-    # RULE 4.6 — NET PROFIT MARGIN (DuPont)
-    # =========================================================
-    npm = 15
-
-    if Q2 == "Yes":
+    if data.q2_suspects_waste == "Yes":
         npm *= 0.85
 
-    if twin.silos.get("strategy", {}).get("staff_alignment", 100) < 50:
+    if silo1 and silo1.get("staff_alignment", {}).get("score", 0) < 50:
         npm *= 0.90
 
-    if twin.silos.get("efficiency", {}).get("digital_quadrant") == "BEGINNERS":
+    if silo3 and silo3.get("sop_impact"):
         npm *= 0.92
 
-    silo["net_profit_margin"] = npm
+    return npm
 
-    # =========================================================
-    # RULE 4.7 — ASSET TURNOVER
-    # =========================================================
-    turnover = 2.0
 
-    if twin.silos.get("hr", {}).get("employee_count", 0) > 50:
-        turnover *= 0.9
+# =============================
+# RULE 4.7 — ASSET TURNOVER
+# =============================
+def asset_turnover(data, silo2=None, silo3=None):
+    at = 2.0
 
-    if twin.silos.get("efficiency", {}).get("digital_intensity", 0) >= 70:
-        turnover *= 1.1
+    if data.q1_employee_count > 50:
+        at *= 0.9
 
-    silo["asset_turnover"] = turnover
+    if silo3 and silo3.get("digital_intensity", {}).get("score", 0) >= 70:
+        at *= 1.1
 
-    # =========================================================
-    # RULE 4.8 — ROE (DuPont)
-    # =========================================================
+    return at
+
+
+# =============================
+# RULE 4.8 — ROE
+# =============================
+def return_on_equity(npm, at):
     leverage = 1.5
-
-    ROE = npm * turnover * leverage
-
-    silo["roe"] = ROE
+    roe = npm * at * leverage
 
     if npm > 15:
         driver = "MARGIN"
-    elif turnover > 2:
+    elif at > 2:
         driver = "EFFICIENCY"
     elif leverage > 1.8:
         driver = "LEVERAGE"
     else:
         driver = "BALANCED"
 
-    silo["profit_driver"] = driver
+    return {
+        "roe": roe,
+        "driver": driver
+    }
 
-    # =========================================================
-    # RULE 4.9 — WASTE IMPACT ($)
-    # =========================================================
+
+# =============================
+# RULE 4.9 — WASTE VALUE
+# =============================
+def waste_value(data, silo1=None, silo2=None, silo3=None):
     waste_pct = 0
 
-    if Q2 == "Yes":
-        waste_pct += 8
-
-    if twin.silos.get("strategy", {}).get("systems_efficiency", 100) < 50:
-        waste_pct += 12
-
-    if twin.silos.get("efficiency", {}).get("sop_coverage") == "None":
+    if data.q2_suspects_waste == "Yes":
         waste_pct += 10
 
-    if twin.silos.get("strategy", {}).get("staff_alignment", 100) < 40:
-        waste_pct += 7
+    if silo3 and silo3.get("bottleneck", {}).get("category"):
+        waste_pct += 8
 
-    if twin.silos.get("hr", {}).get("turnover", 0) >= 50:
+    if silo1 and silo1.get("systems_efficiency") == 50:
+        waste_pct += 12
+
+    if silo3 and data.q2_sops == "None":
+        waste_pct += 10
+
+    if silo2 and data.q5_turnover >= 50:
         waste_pct += 15
 
-    waste_value = revenue * (waste_pct / 100)
+    return waste_pct
 
-    silo["waste_percentage"] = waste_pct
-    silo["waste_value"] = waste_value
 
-    if waste_pct > 0:
-        twin.insights.append(Insight(
-            f"Waste reduction opportunity ≈ ${int(waste_value * 0.6)}",
-            "Rule 4.9",
-            "HIGH"
-        ))
-
-    # =========================================================
-    # RULE 4.10 — FINANCIAL HEALTH SCORE
-    # =========================================================
-    repeat_score = 50  # placeholder until silo 6
+# =============================
+# RULE 4.10 — FINANCIAL HEALTH
+# =============================
+def financial_health(data, concentration_score, ccc, silo6=None):
+    repeat_score = silo6.get("repeat_score", 50) if silo6 else 50
 
     revenue_stability = (
-        (concentration_score * 0.4) +
-        (Q3 * 0.35) +
-        (repeat_score * 0.25)
+        concentration_score * 0.4 +
+        data.q3_recurring_revenue * 0.35 +
+        repeat_score * 0.25
     )
 
-    cash_efficiency = wc_score
+    ccc_score = {
+        "EXCELLENT": 100,
+        "GOOD": 75,
+        "POOR": 50,
+        "CRITICAL": 25
+    }
 
-    if revenue_stability < 40 or cash_efficiency < 40:
-        financial_risk = "HIGH"
+    cash_eff = ccc_score[working_capital_efficiency(ccc)]
+
+    if revenue_stability < 40 or cash_eff < 40:
+        risk = "HIGH"
     elif revenue_stability < 60:
-        financial_risk = "MEDIUM"
+        risk = "MEDIUM"
     else:
-        financial_risk = "LOW"
+        risk = "LOW"
 
-    silo["financial_risk"] = financial_risk
+    return {
+        "revenue_stability": revenue_stability,
+        "cash_efficiency": cash_eff,
+        "risk_level": risk
+    }
 
-    # =========================================================
-    # RULE 4.11 — CCC + RUNWAY
-    # =========================================================
-    runway = twin.silos.get("risk", {}).get("runway", 12)
 
-    if CCC > 45 and runway < 3:
-        twin.insights.append(Insight(
-            "Critical cash flow crisis imminent",
-            "Rule 4.11",
-            "CRITICAL"
-        ))
+# =============================
+# RULE 4.11 — CCC + RUNWAY
+# =============================
+def cash_flow_crisis(ccc, silo7=None):
+    if silo7:
+        runway = silo7.get("runway_months", 12)
 
-    # =========================================================
-    # SAVE SILO
-    # =========================================================
-    twin.silos["financial"] = silo
+        if ccc > 45 and runway < 3:
+            return {
+                "alert": "Critical cash flow crisis imminent",
+                "priority": "IMMEDIATE"
+            }
+
+    return None
+
+
+# =============================
+# MAIN
+# =============================
+def run_silo4(data, silo1=None, silo2=None, silo3=None, silo6=None, silo7=None):
+
+    concentration = revenue_concentration(data)
+    model = business_model(data)
+
+    ccc_data = cash_conversion_cycle(data)
+    ccc = ccc_data["ccc_days"]
+
+    npm = net_profit_margin(data, silo1, silo3)
+    at = asset_turnover(data, silo2, silo3)
+    roe = return_on_equity(npm, at)
+
+    waste_pct = waste_value(data, silo1, silo2, silo3)
+
+    health = financial_health(data, concentration["score"], ccc, silo6)
+
+    return {
+        "concentration": concentration,
+        "business_model": model,
+        "ccc": ccc_data,
+        "working_capital": working_capital_efficiency(ccc),
+        "net_profit_margin": npm,
+        "asset_turnover": at,
+        "roe": roe,
+        "waste_percent": waste_pct,
+        "financial_health": health,
+        "cash_flow_risk": cash_flow_crisis(ccc, silo7)
+    }

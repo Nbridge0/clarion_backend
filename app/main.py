@@ -11,11 +11,15 @@ from typing import Dict, Any
 from dotenv import load_dotenv
 from supabase import create_client
 from datetime import datetime
+from pydantic import BaseModel
+from app.engine.master_engine import run_full_analysis
+
+from app.chat import ask_ai, save_message, get_chat_history
 
 # =========================
 # 🔐 LOAD ENV
 # =========================
-load_dotenv()
+load_dotenv(dotenv_path='".env"')
 
 SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_KEY = os.getenv("SUPABASE_KEY")
@@ -31,12 +35,7 @@ supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
 # 🧠 MOCK ANALYSIS ENGINE
 # =========================
 def run_analysis(data):
-    # Replace this with real logic later
-    return {
-        "score": len(data),
-        "insight": "Analysis completed",
-        "input_preview": data
-    }
+    return run_full_analysis(data)
 
 # =========================
 # 🔐 AUTH SYSTEM
@@ -92,6 +91,10 @@ class CreateUserRequest(BaseModel):
 
 class SubmitRequest(BaseModel):
     answers: Dict[str, Any]
+
+class ChatRequest(BaseModel):
+    chat_id: int | None = None
+    message: str
 
 # =========================
 # 🧠 ROOT
@@ -255,3 +258,59 @@ def debug(request: AnalysisRequest):
     }
 
 print("🔥 CORRECT MAIN.PY LOADED")
+
+
+@app.post("/chat/message")
+def chat(req: ChatRequest):
+
+    # 1️⃣ Create chat if needed
+    if not req.chat_id:
+        chat = supabase.table("chats").insert({
+            "title": "New Chat"
+        }).execute()
+
+        chat_id = chat.data[0]["id"]
+    else:
+        chat_id = req.chat_id
+
+    # 2️⃣ Save user message
+    save_message(chat_id, "user", req.message)
+
+    # 3️⃣ Get history
+    history = get_chat_history(chat_id)
+
+    # 4️⃣ Get AI answer
+    answer = ask_ai(req.message, history)
+
+    # 5️⃣ Save AI message
+    save_message(chat_id, "assistant", answer)
+
+    return {
+        "chat_id": chat_id,
+        "answer": answer
+    }
+
+@app.get("/chats")
+def get_chats():
+    res = supabase.table("chats").select("*").execute()
+    return res.data
+
+@app.get("/chats/{chat_id}")
+def get_messages(chat_id: int):
+    res = supabase.table("messages") \
+        .select("*") \
+        .eq("chat_id", chat_id) \
+        .order("id") \
+        .execute()
+
+    return res.data
+
+@app.get("/suggested-questions")
+def suggested():
+    res = supabase.table("suggested_questions") \
+        .select("question") \
+        .eq("is_active", True) \
+        .order("display_order") \
+        .execute()
+
+    return [q["question"] for q in res.data]

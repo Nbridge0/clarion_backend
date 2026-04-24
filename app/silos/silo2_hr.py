@@ -1,260 +1,265 @@
-from app.types.results import Insight, RiskItem
+from typing import Dict, Any, List, Optional
+
+# =============================
+# RULE 2.1 — TRUST
+# =============================
+def trust_score(data):
+    score = 0
+
+    # engagement measurement
+    if data.q4_engagement_measured == "Yes":
+        score += 30
+
+    # turnover
+    if data.q5_turnover < 25:
+        score += 40
+    elif data.q5_turnover < 50:
+        score += 20
+
+    # role clarity
+    if data.q3_roles_clear == "Yes":
+        score += 30
+
+    return {
+        "score": score,
+        "level": "HIGH" if score >= 70 else "LOW"
+    }
 
 
-def process_hr_silo(data, twin):
-    """
-    Implements ALL:
-    Rule 2.1 → 2.10
-    Lencioni 5 Dysfunctions
-    Turnover + Knowledge + Structure logic
-    """
+# =============================
+# RULE 2.2 — HEALTHY CONFLICT
+# =============================
+def conflict_health(data):
+    unhealthy = False
+    reason = None
 
-    Q1 = data.get("employee_count", 0)
-    Q2 = data.get("departments", 0)
-    Q3 = data.get("role_clarity", "No")  # Yes / Some / No
-    Q4 = data.get("engagement_measured", "No")  # Yes / No
-    Q5 = data.get("turnover", 0)
-    Q6 = data.get("performance_improvements", [])
-    Q7 = data.get("knowledge_concentration", 0)
-
-    silo = {}
-
-    # =========================================================
-    # RULE 2.1 — TRUST (FOUNDATION)
-    # =========================================================
-    trust = 0
-
-    if Q4 == "Yes":
-        trust += 30
-
-    if Q5 < 25:
-        trust += 40
-    elif Q5 < 50:
-        trust += 20
-
-    if Q3 == "Yes":
-        trust += 30
-    elif Q3 == "Some":
-        trust += 15
-
-    silo["trust"] = trust
-
-    if trust < 40:
-        twin.insights.append(Insight(
-            "Low trust foundation — engagement, turnover, or role clarity issues",
-            "Rule 2.1",
-            "HIGH"
-        ))
-
-    # =========================================================
-    # RULE 2.2 — HEALTHY CONFLICT
-    # =========================================================
-    conflict = 70  # default healthy
-
-    if Q5 >= 50 and any(x in Q6 for x in [
+    if data.q5_turnover >= 50 and any(x in data.q6_perf_improvements for x in [
         "Stronger leadership/management",
         "Improved communication/collaboration",
         "Better work-life balance"
     ]):
-        conflict = 30
+        unhealthy = True
+        reason = "Artificial harmony — issues not surfaced"
 
-        twin.insights.append(Insight(
-            "Artificial harmony detected — people not speaking up",
-            "Rule 2.2",
-            "HIGH"
-        ))
+    if data.q4_engagement_measured == "No" and data.q3_roles_clear == "No":
+        unhealthy = True
+        reason = "Avoidance pattern — leadership not engaging issues"
 
-    if Q4 == "No" and Q3 == "No":
-        conflict = 20
+    return {
+        "status": "UNHEALTHY" if unhealthy else "HEALTHY",
+        "reason": reason
+    }
 
-        twin.insights.append(Insight(
-            "Conflict avoidance pattern — leadership not engaging real issues",
-            "Rule 2.2",
-            "HIGH"
-        ))
 
-    silo["conflict"] = conflict
+# =============================
+# RULE 2.3 — COMMITMENT
+# =============================
+def commitment_score(data):
+    if data.q3_roles_clear == "Yes" and data.q9_employee_understanding == "Yes":
+        return {
+            "score": 90,
+            "status": "HIGH"
+        }
 
-    # =========================================================
-    # RULE 2.3 — COMMITMENT
-    # =========================================================
-    commitment = 0
+    if data.q3_roles_clear == "No" and data.q9_employee_understanding == "No":
+        return {
+            "score": 30,
+            "status": "LOW",
+            "alert": "Lack of Buy-In — Team doesn't understand roles or direction"
+        }
 
-    if Q3 == "Yes":
-        commitment += 50
-    elif Q3 == "Some":
-        commitment += 25
+    return {
+        "score": 60,
+        "status": "MEDIUM"
+    }
 
-    strategy_q9 = twin.silos.get("strategy", {}).get("strategy_clarity_label", "")
 
-    if strategy_q9 == "HIGH":
-        commitment += 50
-    elif strategy_q9 == "MEDIUM":
-        commitment += 25
+# =============================
+# RULE 2.4 — ACCOUNTABILITY
+# =============================
+def accountability_score(data):
+    base = 50
 
-    silo["commitment"] = commitment
+    # role clarity
+    if data.q3_roles_clear == "Yes":
+        base += 20
 
-    if commitment < 40:
-        twin.insights.append(Insight(
-            "Lack of Buy-In — team doesn't understand roles or direction",
-            "Rule 2.3",
-            "CRITICAL"
-        ))
+    # turnover impact
+    if data.q5_turnover >= 50:
+        base -= 20
 
-    # =========================================================
-    # RULE 2.4 — ACCOUNTABILITY
-    # =========================================================
-    accountability = 0
-
-    # Role clarity
-    if Q3 == "Yes":
-        accountability += 40
-    elif Q3 == "Some":
-        accountability += 20
-
-    # Turnover impact
-    if Q5 < 25:
-        accountability += 30
-    elif Q5 < 50:
-        accountability += 15
-
-    # Performance signals
-    if any(x in Q6 for x in [
+    # improvement signals
+    if any(x in data.q6_perf_improvements for x in [
         "Clearer roles and responsibilities",
         "Better processes/workflows",
         "Stronger leadership/management"
     ]):
-        accountability += 20
+        base = 50
 
-    elif any(x in Q6 for x in [
+    elif any(x in data.q6_perf_improvements for x in [
         "Better tools/technology",
         "Additional headcount"
     ]):
-        accountability += 25
+        base = 60
 
-    elif any(x in Q6 for x in [
+    elif any(x in data.q6_perf_improvements for x in [
         "Recognition/appreciation",
         "More autonomy/empowerment"
     ]):
-        accountability += 10
+        base = 40
 
-    silo["accountability"] = accountability
+    return {
+        "score": base,
+        "alert": "Low Standards Dysfunction" if base < 50 else None
+    }
 
-    if accountability < 50:
-        twin.insights.append(Insight(
-            "Low Standards Dysfunction — weak accountability culture",
-            "Rule 2.4",
-            "HIGH"
-        ))
 
-    # =========================================================
-    # RULE 2.5 — RESULTS ORIENTATION
-    # =========================================================
-    if Q7 < 10:
-        results = 90
-    elif Q7 < 25:
-        results = 70
-    elif Q7 < 50:
-        results = 50
+# =============================
+# RULE 2.5 — RESULTS ORIENTATION
+# =============================
+def results_orientation(data):
+    concentration = data.q7_knowledge_concentration
+
+    if concentration > 50:
+        return {
+            "score": 30,
+            "alert": "Succession Planning Required"
+        }
+
+    elif concentration >= 25:
+        return {
+            "score": 60
+        }
+
     else:
-        results = 30
+        return {
+            "score": 90
+        }
 
-        twin.insights.append(Insight(
-            "Organization depends on individual heroism",
-            "Rule 2.5",
-            "HIGH"
-        ))
 
-    if Q7 >= 25:
-        twin.insights.append(Insight(
-            "Succession planning required",
-            "Rule 2.5",
-            "CRITICAL"
-        ))
+# =============================
+# RULE 2.6 — TEAM HEALTH
+# =============================
+def team_health(data):
+    trust = trust_score(data)["score"]
+    conflict = 40 if conflict_health(data)["status"] == "UNHEALTHY" else 80
+    commitment = commitment_score(data)["score"]
+    accountability = accountability_score(data)["score"]
+    results = results_orientation(data)["score"]
 
-    silo["results"] = results
+    avg = (trust + conflict + commitment + accountability + results) / 5
 
-    # =========================================================
-    # RULE 2.6 — TEAM HEALTH SCORE
-    # =========================================================
-    team_health = (trust + conflict + commitment + accountability + results) / 5
+    return {
+        "score": avg,
+        "alert": "Lencioni Team Health Workshop recommended" if avg < 50 else None
+    }
 
-    silo["team_health"] = team_health
-    twin.scores["team_health"] = team_health
 
-    if team_health < 50:
-        twin.insights.append(Insight(
-            "Lencioni Team Health Workshop recommended",
-            "Rule 2.6",
-            "HIGH"
-        ))
+# =============================
+# RULE 2.7 — TURNOVER CRISIS
+# =============================
+def turnover_analysis(data):
+    turnover = data.q5_turnover
 
-    # =========================================================
-    # RULE 2.7 — TURNOVER CRISIS
-    # =========================================================
-    if Q5 >= 50:
-        twin.insights.append(Insight(
-            "Turnover crisis detected",
-            "Rule 2.7",
-            "CRITICAL"
-        ))
+    if turnover < 25:
+        level = "Healthy"
+    elif turnover < 50:
+        level = "Concerning"
+    elif turnover < 75:
+        level = "Critical"
+    else:
+        level = "Crisis"
 
-        twin.risks.append(RiskItem(
-            "High turnover threatens operations",
-            "Almost Certain",
-            "Major",
-            "CRITICAL",
-            "Rule 2.7"
-        ))
+    alerts = []
 
-    # =========================================================
-    # RULE 2.8 — KNOWLEDGE CONCENTRATION
-    # =========================================================
-    if Q7 >= 25 and Q5 >= 25:
-        twin.insights.append(Insight(
-            "Critical succession risk — knowledge + turnover combined",
-            "Rule 2.8",
-            "CRITICAL"
-        ))
+    if turnover >= 50:
+        alerts.append("HR crisis threatening strategy execution")
+        alerts.append("Service quality at risk from turnover")
 
-    if Q7 > 50 and twin.silos.get("service", {}).get("quality", 0) >= 80:
-        twin.insights.append(Insight(
-            "Service depends on single individual — high risk",
-            "Rule 2.8",
-            "CRITICAL"
-        ))
+    return {
+        "level": level,
+        "alerts": alerts
+    }
 
-    # =========================================================
-    # RULE 2.9 — ORGANIZATIONAL COMPLEXITY
-    # =========================================================
-    if Q2 >= 5 and Q1 <= 25:
-        twin.insights.append(Insight(
-            "Over-structured organization — too many departments",
-            "Rule 2.9",
-            "MEDIUM"
-        ))
 
-    if Q2 <= 2 and Q1 > 25:
-        twin.insights.append(Insight(
-            "Under-structured organization — unclear responsibilities",
-            "Rule 2.9",
-            "HIGH"
-        ))
+# =============================
+# RULE 2.8 — KNOWLEDGE RISK
+# =============================
+def knowledge_risk(data):
+    concentration = data.q7_knowledge_concentration
+    turnover = data.q5_turnover
 
-    # =========================================================
-    # RULE 2.10 — ROLE CLARITY IMPACT
-    # =========================================================
-    if Q3 == "No":
-        twin.insights.append(Insight(
-            "Missing job architecture and KPIs — affecting multiple silos",
-            "Rule 2.10",
-            "CRITICAL"
-        ))
+    if concentration >= 25 and turnover >= 25:
+        return {
+            "risk": "CRITICAL",
+            "actions": [
+                "Document critical knowledge",
+                "Cross-train personnel",
+                "Retention plan for key staff"
+            ]
+        }
 
-    # =========================================================
-    # SAVE SILO
-    # =========================================================
-    silo["turnover"] = Q5
-    silo["knowledge_concentration"] = Q7
+    if concentration > 50:
+        return {
+            "risk": "CRITICAL",
+            "insight": "Single point of failure"
+        }
 
-    twin.silos["hr"] = silo
+    return {
+        "risk": "LOW"
+    }
+
+
+# =============================
+# RULE 2.9 — ORG COMPLEXITY
+# =============================
+def org_complexity(data):
+    if data.q2_departments >= 5 and data.q1_employee_count <= 25:
+        return {
+            "status": "OVER-STRUCTURED",
+            "insight": "Too many departments for size"
+        }
+
+    if data.q2_departments <= 2 and data.q1_employee_count > 25:
+        return {
+            "status": "UNDER-STRUCTURED",
+            "insight": "Not enough structure for scale"
+        }
+
+    return {
+        "status": "BALANCED"
+    }
+
+
+# =============================
+# RULE 2.10 — ROLE CLARITY IMPACT
+# =============================
+def role_clarity_impact(data):
+    if data.q3_roles_clear == "No":
+        return {
+            "impact": [
+                "Reduces 7S Structure effectiveness",
+                "Reduces Staff alignment",
+                "Recommend KPI architecture"
+            ]
+        }
+
+    return {"impact": None}
+
+
+# =============================
+# MAIN
+# =============================
+def run_silo2(data):
+    return {
+        "trust": trust_score(data),
+        "conflict": conflict_health(data),
+        "commitment": commitment_score(data),
+        "accountability": accountability_score(data),
+        "results": results_orientation(data),
+        "team_health": team_health(data),
+        "turnover": turnover_analysis(data),
+        "knowledge_risk": knowledge_risk(data),
+        "complexity": org_complexity(data),
+        "role_clarity_impact": role_clarity_impact(data)
+    }

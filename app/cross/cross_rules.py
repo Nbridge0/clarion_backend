@@ -1,361 +1,213 @@
-from app.types.results import Insight, RiskItem
+from typing import Dict, Any, List
 
 
-def run_cross_rules(twin):
+# =============================
+# HELPERS
+# =============================
+def add(insights, msg): insights.append(msg)
+def risk(risks, level, msg): risks.append({"level": level, "message": msg})
+def rec(recs, msg): recs.append(msg)
 
-    s1 = twin.silos.get("strategy", {})
-    s2 = twin.silos.get("hr", {})
-    s3 = twin.silos.get("efficiency", {})
-    s4 = twin.silos.get("financial", {})
-    s5 = twin.silos.get("marketing", {})
-    s6 = twin.silos.get("service", {})
-    s7 = twin.silos.get("risk", {})
 
-    # =========================================================
-    # CS.1 — STRATEGY ↔ HR
-    # =========================================================
-    if s1.get("strategy_clarity_label") == "HIGH" and s2.get("commitment", 100) < 40:
-        twin.insights.append(Insight(
-            "Strategy exists but not communicated — alignment failure",
-            "CS.1",
-            "CRITICAL"
-        ))
+# =============================
+# CS.1 — STRATEGY ↔ HR
+# =============================
+def cs1(data, s1, s2, insights, recs, risks):
+    if data.q10_written_strategy == "Yes" and data.q9_employee_understanding == "No":
+        add(insights, "Strategy exists but is not understood by employees")
+        rec(recs, "Run strategy cascade workshops")
 
-    if s1.get("staff_alignment", 100) < 40 and s2.get("knowledge_concentration", 0) > 50:
-        twin.insights.append(Insight(
-            "Catastrophic succession risk — owner + knowledge concentration",
-            "CS.1",
-            "CRITICAL"
-        ))
+    if data.q12_owner_dependency == "Yes" and data.q7_knowledge_concentration > 50:
+        risk(risks, "CRITICAL", "Catastrophic succession risk")
+        rec(recs, "Immediate succession + knowledge transfer plan")
 
-    # =========================================================
-    # CS.2 — STRATEGY ↔ EFFICIENCY
-    # =========================================================
-    if s1.get("strategy_clarity", 0) >= 70 and s3.get("digital_quadrant") == "BEGINNERS":
-        twin.insights.append(Insight(
-            "Strategy not operationalized into processes",
-            "CS.2",
-            "HIGH"
-        ))
 
-    if s1.get("staff_alignment", 100) < 40 and s3.get("digital_intensity", 0) < 40:
-        twin.insights.append(Insight(
-            "High admin burden + no automation — major efficiency loss",
-            "CS.2",
-            "HIGH"
-        ))
+# =============================
+# CS.2 — STRATEGY ↔ EFFICIENCY
+# =============================
+def cs2(data, s1, s3, insights, recs):
+    if data.q10_written_strategy == "Yes" and data.q2_sops in ["None", "Some"]:
+        add(insights, "Strategy exists but not operationalized")
+        rec(recs, "Translate strategy into SOPs")
 
-    # =========================================================
-    # CS.3 — STRATEGY ↔ FINANCIAL
-    # =========================================================
-    if s1.get("strategy_clarity", 0) >= 70 and s7.get("resilience") in ["WEAK", "CRITICAL"]:
-        twin.insights.append(Insight(
-            "Growth ambition exceeds financial capacity",
-            "CS.3",
-            "CRITICAL"
-        ))
+    if data.q7_admin_percent > 60 and data.q4_automation == "No":
+        rec(recs, "High ROI automation opportunity")
 
-    if s4.get("concentration_score", 100) < 50 and len(s1.get("opportunities", [])) > 0:
-        twin.insights.append(Insight(
-            "Expansion while dependent on few clients increases risk",
-            "CS.3",
-            "HIGH"
-        ))
 
-    # =========================================================
-    # CS.4 — HR → SERVICE CASCADE
-    # =========================================================
-    if s2.get("turnover", 0) >= 50:
-        twin.insights.append(Insight(
-            "Turnover is degrading service quality and operations",
-            "CS.4",
-            "CRITICAL"
-        ))
+# =============================
+# CS.3 — STRATEGY ↔ FINANCE
+# =============================
+def cs3(data, s4, s7, insights, recs, risks):
+    if data.q6_growth_confidence >= 4 and data.q5_runway < 6:
+        risk(risks, "HIGH", "Growth ambition exceeds financial runway")
+        rec(recs, "Secure capital before expansion")
 
-    if s2.get("role_clarity") == "No" and s3.get("transformation_management", 100) < 40:
-        twin.insights.append(Insight(
-            "Double blind spot — no roles + no processes",
-            "CS.4",
-            "CRITICAL"
-        ))
+    if data.q1_customer_concentration >= 50:
+        rec(recs, "Diversify customers before expansion")
 
-    # =========================================================
-    # CS.5 — KNOWLEDGE RISK
-    # =========================================================
-    if s2.get("knowledge_concentration", 0) >= 25 and s2.get("turnover", 0) >= 25:
-        twin.risks.append(RiskItem(
-            "Knowledge loss risk",
-            "Likely",
-            "Major",
-            "HIGH",
-            "CS.5",
-            "Operational"
-        ))
 
-    if s2.get("knowledge_concentration", 0) > 50 and s6.get("service_quality", 0) >= 80:
-        twin.insights.append(Insight(
-            "Service depends on one person — high fragility",
-            "CS.5",
-            "CRITICAL"
-        ))
+# =============================
+# CS.4 — HR → SERVICE CASCADE
+# =============================
+def cs4(data, s2, s3, s6, insights, recs, risks):
+    if data.q5_turnover >= 50:
+        add(insights, "Turnover damaging service quality")
+        rec(recs, "Fix retention before scaling")
 
-    # =========================================================
-    # CS.6 — WASTE LOOP
-    # =========================================================
+    if data.q3_roles_clear == "No" and data.q2_sops == "None":
+        risk(risks, "CRITICAL", "Double blind spot: no roles + no processes")
+        rec(recs, "Define roles AND SOPs immediately")
+
+
+# =============================
+# CS.5 — KNOWLEDGE RISK
+# =============================
+def cs5(data, s2, s6, insights, recs, risks):
+    if data.q7_knowledge_concentration >= 25 and data.q5_turnover >= 25:
+        risk(risks, "HIGH", "Knowledge loss imminent")
+        rec(recs, "Run knowledge capture sprint")
+
+    if data.q7_knowledge_concentration > 50 and s6.get("servqual", {}).get("score", 0) >= 80:
+        add(insights, "Service quality depends on one person")
+
+
+# =============================
+# CS.6 — WASTE LOOP
+# =============================
+def cs6(data, s1, s2, s3, s4, insights, recs):
     waste = 0
 
-    if s3.get("transformation_management", 100) < 40:
-        waste += 10
-    if s1.get("systems_efficiency", 100) < 50:
-        waste += 12
-    if s3.get("bottleneck_severity") == "Critical impact":
-        waste += 8
-    if s2.get("turnover", 0) >= 50:
-        waste += 15
+    if data.q2_sops == "None": waste += 10
+    if data.q8_duplication == "A lot": waste += 12
+    if data.q8b_severity == "Critical": waste += 8
+    if data.q5_turnover >= 50: waste += 15
+    if data.q4_automation == "No" and data.q7_admin_percent > 50: waste += 10
 
     if waste >= 25:
-        twin.insights.append(Insight(
-            f"High operational waste detected (~{waste}%)",
-            "CS.6",
-            "HIGH"
-        ))
+        add(insights, f"High operational waste: {waste}%")
+        rec(recs, "Launch operational excellence program")
 
-    # =========================================================
-    # CS.7 — MARKETING ↔ SERVICE
-    # =========================================================
-    if s5.get("acquisition_score", 0) >= 70 and s6.get("retention") in ["FAIR", "POOR"]:
-        twin.insights.append(Insight(
-            "Leaky bucket — strong acquisition but weak retention",
-            "CS.7",
-            "CRITICAL"
-        ))
 
-    if s6.get("nps", 0) > 50 and s5.get("lead_balance") == "OUTBOUND":
-        twin.insights.append(Insight(
-            "Referral opportunity not captured — build referral system",
-            "CS.7",
-            "HIGH"
-        ))
+# =============================
+# CS.7 — MARKETING ↔ SERVICE
+# =============================
+def cs7(data, s5, s6, insights, recs):
+    if s5.get("acquisition", {}).get("score", 0) >= 70 and data.q1_repeat_customers < 50:
+        add(insights, "Leaky bucket: acquiring but not retaining")
+        rec(recs, "Shift budget to retention")
 
-    # =========================================================
-    # CS.8 — SERVICE → FINANCIAL
-    # =========================================================
-    if s6.get("retention") == "EXCELLENT" and s4.get("business_model") != "PROJECT":
-        twin.insights.append(Insight(
-            "Strong retention driving predictable revenue",
-            "CS.8",
-            "MEDIUM"
-        ))
+    if data.q3_referral >= 4 and s5.get("lead_balance") != "INBOUND_DOMINANT":
+        rec(recs, "Formalize referral program")
 
-    if s6.get("service_quality", 100) < 50 and s4.get("concentration_score", 100) < 50:
-        twin.insights.append(Insight(
-            "Poor service + concentration = critical business risk",
-            "CS.8",
-            "CRITICAL"
-        ))
 
-    # =========================================================
-    # CS.9 — DIGITAL ↔ COMPETITIVE POSITION
-    # =========================================================
-    if s3.get("digital_quadrant") == "DIGIRATI" and s1.get("shared_values_strength") != "STRONG":
-        twin.swot["strengths"].append("Digital superiority")
+# =============================
+# CS.8 — SERVICE → FINANCE
+# =============================
+def cs8(data, s4, s6, insights, recs, risks):
+    if data.q1_repeat_customers >= 75:
+        add(insights, "Strong retention supports stable revenue")
 
-    if s3.get("digital_quadrant") == "BEGINNERS":
-        twin.swot["threats"].append("Digital disruption risk")
+    if data.q2_quality <= 2 and data.q1_customer_concentration >= 50:
+        risk(risks, "CRITICAL", "Poor quality + concentrated revenue")
+        rec(recs, "Fix service quality immediately")
 
-    # =========================================================
-    # CS.10 — RISK → STRATEGY
-    # =========================================================
-    if s7.get("enterprise_risk_score", 100) < 50:
-        twin.insights.append(Insight(
-            "Risk level too high — focus must shift to stabilization",
-            "CS.10",
-            "CRITICAL"
-        ))
 
-    # =========================================================
-    # CS.11 — COMPLIANCE ↔ FINANCIAL
-    # =========================================================
-    if s7.get("compliance_maturity") in ["BASIC", "NON-EXISTENT"] and s4.get("concentration_score", 100) < 50:
-        twin.insights.append(Insight(
-            "Compliance failure could be existential",
-            "CS.11",
-            "CRITICAL"
-        ))
+# =============================
+# CS.9 — DIGITAL → STRATEGY
+# =============================
+def cs9(s1, s3, insights):
+    quadrant = s3.get("quadrant", {}).get("name")
 
-    # =========================================================
-    # CS.12 — FULL AARRR
-    # =========================================================
-    funnel = [
-        s5.get("acquisition_score", 0),
-        s6.get("service_quality", 0),
-        50,
-        (s6.get("nps", 0) / 100) * 100,
-        s5.get("revenue_score", 0)
-    ]
+    if quadrant == "Digirati":
+        add(insights, "Digital maturity creates competitive moat")
 
-    weakest = min(funnel)
+    if quadrant == "Beginners":
+        add(insights, "Digital weakness is a competitive risk")
 
-    if weakest < 40:
-        twin.insights.append(Insight(
-            "Critical funnel weakness detected",
-            "CS.12",
-            "CRITICAL"
-        ))
 
-    # =========================================================
-    # CS.13 — WASTE TYPES
-    # =========================================================
-    if s3.get("bottleneck") == "PROCESS":
-        twin.insights.append(Insight(
-            "Waiting waste at bottlenecks",
-            "CS.13",
-            "MEDIUM"
-        ))
+# =============================
+# CS.10 — RISK → STRATEGY
+# =============================
+def cs10(s7, insights, recs):
+    if s7.get("enterprise_risk", {}).get("score", 100) < 50:
+        rec(recs, "Prioritize enterprise risk mitigation")
 
-    if s6.get("service_quality", 100) < 50:
-        twin.insights.append(Insight(
-            "Defects waste from poor service quality",
-            "CS.13",
-            "HIGH"
-        ))
 
-    # =========================================================
-    # CS.14 — CLV:CAC
-    # =========================================================
-    clv = s6.get("clv", 1)
-    cac = 1  # proxy
+# =============================
+# CS.12 — AARRR FULL
+# =============================
+def cs12(s4, s5, s6, insights, recs):
+    acquisition = s5.get("acquisition", {}).get("score", 0)
+    retention = s6.get("repeat_score", 0)
+    revenue = s5.get("revenue_score", 0)
+
+    weakest = min(
+        [("Acquisition", acquisition), ("Retention", retention), ("Revenue", revenue)],
+        key=lambda x: x[1]
+    )
+
+    rec(recs, f"Focus on weakest funnel stage: {weakest[0]}")
+
+
+# =============================
+# CS.14 — CLV:CAC
+# =============================
+def cs14(s6, s5, insights, recs, risks):
+    clv = s6.get("clv", {}).get("score", 1)
+    cac = 1
 
     ratio = clv / cac
 
     if ratio < 1:
-        twin.insights.append(Insight(
-            "Unsustainable unit economics — losing money per customer",
-            "CS.14",
-            "CRITICAL"
-        ))
+        risk(risks, "CRITICAL", "Unsustainable unit economics")
+    elif ratio < 3:
+        rec(recs, "Improve acquisition efficiency")
 
-    # =========================================================
-    # CS.15 — TURNOVER COST
-    # =========================================================
-    if s2.get("turnover", 0) > 50:
-        twin.insights.append(Insight(
-            "Turnover cost significantly impacting revenue",
-            "CS.15",
-            "HIGH"
-        ))
 
-    # =========================================================
-    # CS.16 — DIGITAL ROI
-    # =========================================================
-    if s3.get("digital_quadrant") in ["BEGINNERS", "CONSERVATIVES"] and waste >= 25:
-        twin.insights.append(Insight(
-            "Digital transformation ROI is high",
-            "CS.16",
-            "HIGH"
-        ))
+# =============================
+# CS.16 — DIGITAL ROI
+# =============================
+def cs16(s3, s4, insights, recs):
+    quadrant = s3.get("quadrant", {}).get("name")
 
-    # =========================================================
-    # CS.17 — PRIORITIES (SIMPLIFIED OUTPUT)
-    # =========================================================
-    # (Full prioritization engine would rank all insights)
+    if quadrant in ["Beginners", "Conservatives"] and s4.get("waste_percent", 0) >= 25:
+        rec(recs, "Digital transformation ROI is high")
 
-    # =========================================================
-    # CS.18 — MARKETING → FINANCIAL
-    # =========================================================
-    if s5.get("stp_alignment", 100) < 60 and s4.get("concentration_score", 100) < 50:
-        twin.insights.append(Insight(
-            "Unfocused marketing causing customer dependency",
-            "CS.18",
-            "HIGH"
-        ))
 
-    # =========================================================
-    # CS.19 — RISK → SERVICE
-    # =========================================================
-    if s7.get("compliance_maturity") in ["BASIC", "NON-EXISTENT"] and s6.get("retention") == "EXCELLENT":
-        twin.insights.append(Insight(
-            "Compliance risk threatens customer loyalty",
-            "CS.19",
-            "HIGH"
-        ))
+# =============================
+# PRIORITIES ENGINE
+# =============================
+def priorities(insights, risks):
+    priority = [r["message"] for r in risks if r["level"] == "CRITICAL"]
+    return priority[:5]
 
-    # =========================================================
-    # CS.20 — EFFICIENCY → MARKETING
-    # =========================================================
-    if s3.get("bottleneck_severity") == "Critical impact" and s5.get("acquisition_score", 0) >= 70:
-        twin.insights.append(Insight(
-            "Marketing generating demand operations cannot deliver",
-            "CS.20",
-            "CRITICAL"
-        ))
 
-    # =========================================================
-    # CS.21 — FINANCE → RISK
-    # =========================================================
-    if s7.get("resilience") in ["WEAK", "CRITICAL"]:
-        twin.insights.append(Insight(
-            "Weak finances forcing reactive risk management",
-            "CS.21",
-            "HIGH"
-        ))
+# =============================
+# ✅ MAIN FUNCTION (THIS FIXES YOUR ERROR)
+# =============================
+def run_cross_analysis(data, silo1, silo2, silo3, silo4, silo5, silo6, silo7):
 
-    # =========================================================
-    # CS.22 — HR → GROWTH
-    # =========================================================
-    if s2.get("turnover", 0) >= 50 and len(s1.get("opportunities", [])) > 0:
-        twin.insights.append(Insight(
-            "Growth not supported by team stability",
-            "CS.22",
-            "CRITICAL"
-        ))
+    insights: List[str] = []
+    recs: List[str] = []
+    risks: List[Dict[str, str]] = []
 
-    # =========================================================
-    # CS.23 — SERVICE → REPUTATION
-    # =========================================================
-    if s6.get("service_quality", 100) < 50:
-        twin.risks.append(RiskItem(
-            "Reputational risk from poor service",
-            "Likely",
-            "Major",
-            "HIGH",
-            "CS.23",
-            "Strategic"
-        ))
+    cs1(data, silo1, silo2, insights, recs, risks)
+    cs2(data, silo1, silo3, insights, recs)
+    cs3(data, silo4, silo7, insights, recs, risks)
+    cs4(data, silo2, silo3, silo6, insights, recs, risks)
+    cs5(data, silo2, silo6, insights, recs, risks)
+    cs6(data, silo1, silo2, silo3, silo4, insights, recs)
+    cs7(data, silo5, silo6, insights, recs)
+    cs8(data, silo4, silo6, insights, recs, risks)
+    cs9(silo1, silo3, insights)
+    cs10(silo7, insights, recs)
+    cs12(silo4, silo5, silo6, insights, recs)
+    cs14(silo6, silo5, insights, recs, risks)
+    cs16(silo3, silo4, insights, recs)
 
-    # =========================================================
-    # CS.24 — STRATEGY → RISK
-    # =========================================================
-    if s1.get("strategy_clarity", 0) >= 80 and waste >= 25:
-        twin.risks.append(RiskItem(
-            "Scaling inefficiency risk",
-            "Likely",
-            "Major",
-            "HIGH",
-            "CS.24",
-            "Strategic"
-        ))
-
-    # =========================================================
-    # CS.25 — PRICING POWER
-    # =========================================================
-    if s6.get("clv_segment") in ["HIGH", "PREMIUM"] and s6.get("service_quality", 0) > 70:
-        twin.insights.append(Insight(
-            "Pricing power exists — consider increasing prices",
-            "CS.25",
-            "HIGH"
-        ))
-
-    # =========================================================
-    # CS.26 — MATURITY STAGE
-    # =========================================================
-    emp = s2.get("employee_count", 0)
-
-    if emp < 10:
-        stage = "STARTUP"
-    elif emp < 50:
-        stage = "GROWTH"
-    else:
-        stage = "MATURE"
-
-    twin.scores["business_stage"] = stage
+    return {
+        "insights": insights,
+        "recommendations": recs,
+        "risks": risks,
+        "top_priorities": priorities(insights, risks)
+    }

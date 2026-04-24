@@ -1,295 +1,327 @@
-from app.types.results import Insight
+from typing import Dict, Any, List, Optional
 
+# =============================
+# RULE 1.1 — STRATEGIC CLARITY
+# =============================
+def strategic_clarity(data):
+    if data.q10_written_strategy == "Yes" and data.q9_employee_understanding in ["Yes", "Some"]:
+        return {
+            "level": "HIGH",
+            "score": 90,
+            "insight": "Clear documented strategy with team alignment"
+        }
 
-def process_strategy_silo(data, twin):
-    """
-    Implements:
-    Rule 1.1 → 1.10
-    Full McKinsey 7S (partial dependencies)
-    Full SWOT builder
-    """
+    if data.q10_written_strategy == "No" and data.q9_employee_understanding == "No":
+        return {
+            "level": "CRITICAL",
+            "score": 20,
+            "alert": "Major misalignment — no strategy and no team alignment"
+        }
 
-    Q5 = data.get("Q5", [])
-    Q6 = data.get("Q6", 0)
-    Q7 = data.get("Q7", "")
-    Q8 = data.get("Q8", "")
-    Q9 = data.get("Q9", "")
-    Q10 = data.get("Q10", "")
-    Q11 = data.get("Q11", [])
-    Q12 = data.get("Q12", "")
-
-    silo = {}
-
-    # =========================
-    # RULE 1.1 — STRATEGIC CLARITY
-    # =========================
-    if Q10 == "Yes" and Q9 in ["Yes", "Some"]:
-        clarity = 90
-        clarity_label = "HIGH"
-    elif Q10 == "No" and Q9 == "No":
-        clarity = 10
-        clarity_label = "CRITICALLY LOW"
-
-        twin.insights.append(Insight(
-            "Critical strategic misalignment detected — no plan and employees unclear",
-            "Rule 1.1",
-            "CRITICAL"
-        ))
-    else:
-        clarity = 50
-        clarity_label = "MEDIUM"
-
-    silo["strategy_clarity"] = clarity
-    silo["strategy_clarity_label"] = clarity_label
-
-    # =========================
-    # RULE 1.2 — SHARED VALUES (7S)
-    # =========================
-
-    strong = [
-        "Specialized expertise",
-        "Unique product/service",
-        "Established relationships",
-        "Technology",
-        "Brand",
-        "Quality"
-    ]
-
-    commodity = [
-        "Lower pricing",
-        "Faster delivery",
-        "Better customer service",
-        "Geographic"
-    ]
-
-    if "We don't have a clear competitive advantage" in Q5:
-        shared_score = 10
-
-        twin.insights.append(Insight(
-            "No competitive differentiation identified",
-            "Rule 1.2",
-            "HIGH"
-        ))
-
-    else:
-        strong_count = sum([1 for x in Q5 if any(s in x for s in strong)])
-        commodity_count = sum([1 for x in Q5 if any(c in x for c in commodity)])
-
-        if strong_count == 1 and commodity_count == 0:
-            shared_score = 90
-        elif 2 <= strong_count <= 3 and commodity_count == 0:
-            shared_score = 70
-        elif strong_count == 0 and commodity_count >= 1:
-            shared_score = 50
-        elif strong_count >= 1 and commodity_count >= 1:
-            shared_score = 65
-        else:
-            shared_score = 50
-
-    # strength interpretation
-    if shared_score >= 70 and Q9 == "Yes":
-        shared_strength = "STRONG"
-    elif shared_score >= 70:
-        shared_strength = "MODERATE"
-
-        twin.insights.append(Insight(
-            "Strong advantage exists but employees not aligned",
-            "Rule 1.2",
-            "MEDIUM"
-        ))
-    else:
-        shared_strength = "WEAK"
-
-        twin.insights.append(Insight(
-            "Weak competitive identity — employees lack rally point",
-            "Rule 1.2",
-            "HIGH"
-        ))
-
-    silo["shared_values_score"] = shared_score
-    silo["shared_values_strength"] = shared_strength
-
-    # =========================
-    # RULE 1.3 — STAFF ALIGNMENT
-    # =========================
-
-    admin_time = data.get("admin_percent", 0)
-
-    staff_score = 0
-
-    if Q9 == "Yes":
-        staff_score += 40
-    elif Q9 == "Some":
-        staff_score += 20
-
-    if admin_time < 30:
-        staff_score += 30
-    elif admin_time < 50:
-        staff_score += 15
-
-    if Q12 != "heavily owner-dependent":
-        staff_score += 30
-
-    silo["staff_alignment"] = staff_score
-
-    # =========================
-    # RULE 1.4 — SYSTEMS (duplication)
-    # =========================
-
-    if Q8 == "A lot":
-        systems_score = 30
-    elif Q8 == "Some":
-        systems_score = 60
-    else:
-        systems_score = 90
-
-    silo["systems_efficiency"] = systems_score
-
-    # =========================
-    # RULE 1.5 — SWOT STRENGTHS
-    # =========================
-
-    if Q5:
-        twin.swot["strengths"].append(Q5[0])
-
-    if Q7:
-        twin.swot["strengths"].append(Q7)
-
-    if Q6 >= 4:
-        twin.swot["strengths"].append("Strong market position confidence")
-
-    # =========================
-    # RULE 1.6 — SWOT WEAKNESSES
-    # =========================
-
-    if admin_time > 50:
-        twin.swot["weaknesses"].append("High administrative burden")
-
-    if Q8 == "A lot":
-        twin.swot["weaknesses"].append("Process duplication")
-
-    if Q10 == "No":
-        twin.swot["weaknesses"].append("Lack of strategic documentation")
-
-    if Q12 == "heavily owner-dependent":
-        twin.swot["weaknesses"].append("Owner dependency risk")
-
-    challenge_map = {
-        "Finding and retaining good people": "Talent acquisition and retention weakness",
-        "Managing cash flow": "Cash flow management weakness",
-        "Operational inefficiencies/waste": "Operational inefficiency",
-        "Lack of time for strategic work": "Leadership capacity constraint",
-        "Regulatory/compliance requirements": "Compliance capability gap",
-        "Generating consistent revenue/sales": "Revenue consistency weakness"
+    return {
+        "level": "MEDIUM",
+        "score": 60,
+        "insight": "Partial clarity — strategy or alignment is incomplete"
     }
 
-    challenge = data.get("biggest_challenge")
 
-    if challenge:
-        twin.swot["weaknesses"].append(
-            challenge_map.get(challenge, challenge)
-        )
+# =============================
+# RULE 1.2 — SHARED VALUES
+# =============================
+STRONG_DEFENSIBLE = [
+    "Specialized expertise/knowledge",
+    "Unique product/service offering",
+    "Established relationships/network",
+    "Technology/digital capabilities",
+    "Brand reputation/heritage",
+    "Superior quality/craftsmanship"
+]
 
-    # =========================
-    # RULE 1.7 — SWOT OPPORTUNITIES
-    # =========================
+COMMODITY = [
+    "Lower pricing than competitors",
+    "Faster delivery/responsiveness",
+    "Better customer service/support",
+    "Geographic convenience/location"
+]
 
-    opportunity_map = {
-        "Expanding to new customer segments": "Market expansion opportunity",
-        "New product/service offerings": "Product/service diversification",
-        "Improving customer retention/upselling": "Revenue expansion from existing customers",
-        "Digital marketing/online presence": "Digital channel growth",
-        "Strategic partnerships/alliances": "Partnership-driven growth",
-        "Technology/automation adoption": "Operational leverage through technology",
-        "Developing recurring revenue streams": "Recurring revenue model transformation"
+NO_ADVANTAGE = "We don't have a clear competitive advantage"
+
+
+def shared_values(data):
+    selections = data.q5_competitive_advantage or []
+
+    if NO_ADVANTAGE in selections:
+        return {
+            "score": 10,
+            "strength": "WEAK",
+            "insight": "No competitive differentiation identified"
+        }
+
+    strong = [s for s in selections if s in STRONG_DEFENSIBLE]
+    commodity = [s for s in selections if s in COMMODITY]
+
+    if len(strong) == 1 and not commodity:
+        score = 90
+        insight = "Clear and focused competitive advantage — strong shared values"
+
+    elif 2 <= len(strong) <= 3 and not commodity:
+        score = 70
+        insight = "Multiple strong differentiators — good but risk of being unfocused"
+
+    elif commodity and not strong:
+        score = 50
+        insight = "Competitive advantages are easy for competitors to replicate"
+
+    elif strong and commodity:
+        score = 65
+        insight = "Strong differentiators diluted by commodity advantages"
+
+    else:
+        score = 50
+        insight = "Unclear competitive positioning"
+
+    if score >= 70 and data.q9_employee_understanding == "Yes":
+        strength = "STRONG"
+    elif score >= 70:
+        strength = "MODERATE"
+    else:
+        strength = "WEAK"
+
+    return {
+        "score": score,
+        "strength": strength,
+        "insight": insight
     }
 
-    for o in Q11:
-        twin.swot["opportunities"].append(
-            opportunity_map.get(o, o)
-        )
 
-    if admin_time > 40:
-        twin.swot["opportunities"].append(
-            "High ROI opportunity from automation"
-        )
+# =============================
+# RULE 1.3 — STAFF ALIGNMENT
+# =============================
+def staff_alignment(data):
+    score = 0
 
-    # =========================
-    # RULE 1.8 — SWOT THREATS
-    # =========================
+    # employee understanding
+    if data.q9_employee_understanding == "Yes":
+        score += 40
+    elif data.q9_employee_understanding == "Some":
+        score += 20
 
-    competitors = data.get("competitors", [])
-    twin.swot["threats"].extend(competitors)
+    # admin burden
+    if data.q7_admin_percent < 30:
+        score += 30
+    elif data.q7_admin_percent < 50:
+        score += 15
 
-    if Q9 == "No":
-        twin.swot["threats"].append(
-            "Strategic misalignment threatening execution"
-        )
+    # owner dependency
+    if data.q12_owner_dependency == "No":
+        score += 30
+    elif data.q12_owner_dependency == "Some":
+        score += 15
 
-    if Q12 == "heavily owner-dependent":
-        twin.swot["threats"].append(
-            "Succession crisis risk"
-        )
+    return {
+        "score": score,
+        "status": "STRONG" if score >= 70 else "WEAK"
+    }
 
-    # =========================
-    # RULE 1.9 — 7S ALIGNMENT SCORE
-    # =========================
 
-    structure = data.get("structure_score", 50)
-    skills = data.get("skills_score", 50)
-    style = 50
+# =============================
+# RULE 1.4 — SYSTEMS
+# =============================
+def systems_efficiency(data):
+    if data.q8_duplication == "A lot":
+        return 50
+    elif data.q8_duplication == "Some":
+        return 75
+    return 100
 
-    alignment = (
-        clarity +
-        structure +
-        systems_score +
-        shared_score +
-        style +
-        staff_score +
-        skills
-    ) / 7
 
-    twin.scores["s7_alignment"] = alignment
+# =============================
+# RULE 1.5 — SWOT STRENGTHS
+# =============================
+def swot_strengths(data, silo6=None):
+    strengths = []
 
-    if alignment < 60:
-        twin.insights.append(Insight(
-            "Critical 7S misalignment detected",
-            "Rule 1.9",
-            "CRITICAL"
-        ))
+    strengths.append(data.q5_competitive_advantage)
+    strengths.append(data.q7_strength)
 
-    # =========================
-    # RULE 1.10 — GROWTH REALITY CHECK
-    # =========================
+    if data.q6_growth_confidence >= 4:
+        strengths.append("Strong market position confidence")
 
-    if Q6 >= 4:
-        if Q10 == "No" or Q9 == "No" or Q12 == "heavily owner-dependent":
-            twin.insights.append(Insight(
-                "Growth confidence not supported by foundation",
-                "Rule 1.10",
-                "CRITICAL"
-            ))
+    # Cross Silo (if available)
+    if silo6:
+        if data.q7_strength == "Our customer relationships" and silo6.get("repeat_pct", 0) >= 75:
+            strengths.append("Strong customer loyalty")
 
-    # capital intensive vs runway
-    runway = data.get("runway_months", 12)
+        if data.q7_strength == "Our reputation/brand" and silo6.get("referral_freq", 0) >= 4:
+            strengths.append("Strong brand advocacy")
 
-    capital_growth = [
+    return strengths
+
+
+# =============================
+# RULE 1.6 — SWOT WEAKNESSES
+# =============================
+CHALLENGE_MAP = {
+    "Finding and retaining good people": "Talent acquisition and retention weakness",
+    "Managing cash flow": "Cash flow management weakness",
+    "Operational inefficiencies/waste": "Operational inefficiency",
+    "Lack of time for strategic work": "Leadership capacity constraint",
+    "Regulatory/compliance requirements": "Compliance capability gap",
+    "Generating consistent revenue/sales": "Revenue consistency weakness"
+}
+
+
+def swot_weaknesses(data):
+    weaknesses = []
+
+    if data.q7_admin_percent > 50:
+        weaknesses.append("High administrative burden")
+
+    if data.q8_duplication == "A lot":
+        weaknesses.append("Process duplication")
+
+    if data.q10_written_strategy == "No":
+        weaknesses.append("Lack of strategic documentation")
+
+    if data.q12_owner_dependency == "Yes":
+        weaknesses.append("Owner dependency risk")
+
+    challenge = getattr(data, "q9_biggest_challenge", None)
+
+    if challenge in CHALLENGE_MAP:
+        weaknesses.append(CHALLENGE_MAP[challenge])
+    elif challenge:
+        weaknesses.append(challenge)
+
+    return weaknesses
+
+
+# =============================
+# RULE 1.7 — SWOT OPPORTUNITIES
+# =============================
+OPPORTUNITY_MAP = {
+    "Expanding to new customer segments": "Market expansion opportunity",
+    "New product/service offerings": "Product/service diversification",
+    "Improving customer retention/upselling": "Revenue expansion from existing customers",
+    "Digital marketing/online presence": "Digital channel growth",
+    "Strategic partnerships/alliances": "Partnership-driven growth",
+    "Technology/automation adoption": "Operational leverage through technology",
+    "Developing recurring revenue streams": "Business model transformation to recurring revenue"
+}
+
+
+def swot_opportunities(data):
+    ops = []
+
+    for o in data.q11_growth_opportunities:
+        ops.append(OPPORTUNITY_MAP.get(o, o))
+
+    if data.q7_admin_percent > 40:
+        ops.append("High ROI opportunity from automation")
+
+    return ops
+
+
+# =============================
+# RULE 1.8 — SWOT THREATS
+# =============================
+def swot_threats(data):
+    threats = []
+
+    threats.extend(data.q3_competitors or [])
+
+    if data.q9_employee_understanding == "No":
+        threats.append("Strategic misalignment threatening execution")
+
+    if data.q12_owner_dependency == "Yes":
+        threats.append("Succession crisis risk")
+
+    return threats
+
+
+# =============================
+# RULE 1.9 — 7S ALIGNMENT
+# =============================
+def seven_s_alignment(data, silo2=None, silo3=None):
+    scores = []
+
+    # Strategy
+    scores.append(90 if data.q10_written_strategy == "Yes" else 40)
+
+    # Systems
+    scores.append(systems_efficiency(data))
+
+    # Shared Values
+    scores.append(shared_values(data)["score"])
+
+    # Staff
+    scores.append(staff_alignment(data)["score"])
+
+    # Structure (from Silo 3 if available)
+    scores.append(silo3.get("structure", 60) if silo3 else 60)
+
+    # Style (based on leadership issues proxy)
+    scores.append(40 if data.q9_employee_understanding == "No" else 70)
+
+    # Skills (from Silo 2)
+    scores.append(silo2.get("skills", 60) if silo2 else 60)
+
+    avg = sum(scores) / len(scores)
+
+    return {
+        "score": avg,
+        "alert": "Critical 7S Misalignment Detected" if avg < 60 else None
+    }
+
+
+# =============================
+# RULE 1.10 — GROWTH REALITY CHECK
+# =============================
+def growth_check(data, silo7=None):
+    warnings = []
+
+    if data.q6_growth_confidence >= 4:
+
+        if data.q10_written_strategy == "No":
+            warnings.append("Growth confidence not supported by strategy")
+
+        if data.q9_employee_understanding == "No":
+            warnings.append("Team not aligned with growth strategy")
+
+        if data.q12_owner_dependency == "Yes":
+            warnings.append("Owner dependency limits scalability")
+
+    # Capital constraint
+    capital_intensive = [
         "Geographic expansion",
         "Acquiring competitors/businesses",
-        "Launch new products/services"
+        "New product/service offerings"
     ]
 
-    if any(x in Q11 for x in capital_growth) and runway < 6:
-        twin.insights.append(Insight(
-            "Growth strategy requires capital not available",
-            "Rule 1.10",
-            "CRITICAL"
-        ))
+    if silo7:
+        runway = silo7.get("runway_months", 12)
 
-    # =========================
-    # SAVE SILO
-    # =========================
+        if any(x in data.q11_growth_opportunities for x in capital_intensive) and runway < 6:
+            warnings.append("Growth strategy requires capital not currently available")
 
-    silo["7s_alignment"] = alignment
+    return warnings
 
-    twin.silos["strategy"] = silo
+
+# =============================
+# MAIN
+# =============================
+def run_silo1(data, silo2=None, silo3=None, silo6=None, silo7=None):
+    return {
+        "strategic_clarity": strategic_clarity(data),
+        "shared_values": shared_values(data),
+        "staff_alignment": staff_alignment(data),
+        "systems_efficiency": systems_efficiency(data),
+        "swot": {
+            "strengths": swot_strengths(data, silo6),
+            "weaknesses": swot_weaknesses(data),
+            "opportunities": swot_opportunities(data),
+            "threats": swot_threats(data)
+        },
+        "seven_s": seven_s_alignment(data, silo2, silo3),
+        "growth_warnings": growth_check(data, silo7)
+    }

@@ -1,279 +1,257 @@
-from app.types.results import Insight, RiskItem
+from typing import Dict, Any, List
 
 
-def process_risk_silo(data, twin):
-    """
-    FULL IMPLEMENTATION:
-    Rule 7.1 → 7.10
-    """
+# =============================
+# RULE 7.1 — LIABILITY RISK
+# =============================
+def liability_risk(data):
+    prevention = []
 
-    Q1 = data.get("contractor_insurance", "No")  # Yes / Sometimes / No
-    Q2 = data.get("sanctions_screening", "None")  # Automated / Periodic / Onboarding / None
-    Q3 = data.get("ubo_verification", "No")  # Yes / Occasionally / Bank / No
-    Q4 = data.get("pi_insurance", "No")  # Yes / Partial / No
-    Q5 = data.get("runway_months", 12)
-    Q6 = data.get("referral_policy", "None")  # Written / Informal / None
+    if data.q1_contractor_insurance == "Yes":
+        prevention.append("STRONG")
+    elif data.q1_contractor_insurance == "Sometimes":
+        prevention.append("WEAK")
+    else:
+        prevention.append("ABSENT")
 
-    silo = {}
+    if data.q8_vendor_backup == "Yes":
+        prevention.append("MODERATE")
+    else:
+        prevention.append("WEAK")
 
+    if data.q4_pi_insurance == "Yes":
+        recovery = "STRONG"
+    elif data.q4_pi_insurance == "Partial":
+        recovery = "MODERATE"
+    else:
+        recovery = "ABSENT"
+
+    if "ABSENT" in prevention or recovery == "ABSENT":
+        return {
+            "risk": "HIGH",
+            "alert": "Liability protection gap is critical"
+        }
+
+    return {"risk": "LOW"}
+
+
+# =============================
+# RULE 7.2 — SANCTIONS / AML
+# =============================
+def sanctions_risk(data):
+    if data.q2_sanctions == "None" or data.q3_ubo == "No":
+        return {
+            "risk": "CRITICAL",
+            "alert": "Critical compliance gap — sanctions screening"
+        }
+
+    return {"risk": "MEDIUM"}
+
+
+# =============================
+# RULE 7.3 — FINANCIAL DISTRESS
+# =============================
+def financial_distress(data, silo4=None):
+    runway = data.q5_runway
+    concentration = data.q1_customer_concentration
+    recurring = data.q3_recurring_revenue
+
+    if runway < 3 and concentration >= 50:
+        return {
+            "risk": "CRITICAL",
+            "alert": "Existential financial risk"
+        }
+
+    return {"risk": "MEDIUM"}
+
+
+# =============================
+# RULE 7.4 — RISK IDENTIFICATION
+# =============================
+def identify_risks(data):
     risks = []
 
-    # =========================================================
-    # RULE 7.1 — BOWTIE: LIABILITY RISK
-    # =========================================================
-    prevention = 0
+    if data.q12_owner_dependency == "Yes":
+        risks.append(("Strategic", "Likely", "Catastrophic"))
 
-    if Q1 == "Yes":
-        prevention += 40
-    elif Q1 == "Sometimes":
-        prevention += 20
+    if data.q5_turnover >= 50:
+        risks.append(("Operational", "Almost Certain", "Major"))
 
-    vendor_backup = twin.silos.get("efficiency", {}).get("bottleneck")
+    if data.q7_knowledge_concentration > 50:
+        risks.append(("Operational", "Possible", "Major"))
 
-    if vendor_backup == "VENDOR":
-        prevention -= 10
+    if data.q1_customer_concentration >= 50:
+        risks.append(("Financial", "Possible", "Catastrophic"))
 
-    recovery = 0
+    if data.q2_suspects_waste == "Yes":
+        risks.append(("Financial", "Likely", "Moderate"))
 
-    if Q4 == "Yes":
-        recovery += 40
-    elif Q4 == "Partial":
-        recovery += 20
+    if data.q1_repeat_customers < 25:
+        risks.append(("Financial", "Almost Certain", "Major"))
 
-    residual = 100 - (prevention + recovery)
+    return risks
 
-    if residual > 60:
-        twin.insights.append(Insight(
-            "Liability protection gap is critical",
-            "Rule 7.1",
-            "CRITICAL"
-        ))
 
-    # =========================================================
-    # RULE 7.2 — SANCTIONS RISK
-    # =========================================================
-    screening_score = {
-        "Automated": 100,
-        "Periodic": 60,
-        "Onboarding": 30,
-        "None": 0
-    }.get(Q2, 0)
+# =============================
+# RULE 7.5 — RISK MATRIX
+# =============================
+def risk_rating(likelihood, impact):
+    if impact == "Catastrophic":
+        if likelihood in ["Likely", "Almost Certain"]:
+            return "CRITICAL"
+        elif likelihood == "Possible":
+            return "HIGH"
+        return "MEDIUM"
 
-    ubo_score = {
-        "Yes": 100,
-        "Occasionally": 40,
-        "Bank": 30,
-        "No": 0
-    }.get(Q3, 0)
-
-    if Q2 == "None" or Q3 == "No":
-        twin.insights.append(Insight(
-            "Critical sanctions compliance gap",
-            "Rule 7.2",
-            "CRITICAL"
-        ))
-
-        risks.append(RiskItem(
-            "Sanctions violation risk",
-            "Possible",
-            "Catastrophic",
-            "CRITICAL",
-            "Rule 7.2",
-            "Compliance"
-        ))
-
-    # =========================================================
-    # RULE 7.3 — FINANCIAL DISTRESS
-    # =========================================================
-    if Q5 > 12:
-        runway_score = 100
-    elif Q5 >= 6:
-        runway_score = 70
-    elif Q5 >= 3:
-        runway_score = 40
-    else:
-        runway_score = 0
-
-    concentration = twin.silos.get("financial", {}).get("concentration_score", 50)
-    recurring = twin.silos.get("financial", {}).get("business_model", "PROJECT")
-
-    if Q5 < 3 and concentration < 50:
-        twin.insights.append(Insight(
-            "Existential financial risk",
-            "Rule 7.3",
-            "CRITICAL"
-        ))
-
-    # =========================================================
-    # RULE 7.4 — ISO RISK GENERATION
-    # =========================================================
-    if twin.silos.get("strategy", {}).get("staff_alignment", 100) < 40:
-        risks.append(RiskItem(
-            "Owner dependency",
-            "Likely",
-            "Catastrophic",
-            "CRITICAL",
-            "Rule 7.4",
-            "Strategic"
-        ))
-
-    if twin.silos.get("hr", {}).get("turnover", 0) >= 50:
-        risks.append(RiskItem(
-            "High turnover",
-            "Almost Certain",
-            "Major",
-            "HIGH",
-            "Rule 7.4",
-            "Operational"
-        ))
-
-    if twin.silos.get("hr", {}).get("knowledge_concentration", 0) > 50:
-        risks.append(RiskItem(
-            "Knowledge concentration",
-            "Possible",
-            "Major",
-            "HIGH",
-            "Rule 7.4",
-            "Operational"
-        ))
-
-    # =========================================================
-    # RULE 7.5 — RISK MATRIX (AUTO APPLY)
-    # =========================================================
-    def rate(likelihood, impact):
-        if impact == "Catastrophic":
-            if likelihood in ["Likely", "Almost Certain"]:
-                return "CRITICAL"
-            elif likelihood == "Possible":
-                return "HIGH"
-            else:
-                return "MEDIUM"
-
-        if impact == "Major":
-            if likelihood in ["Likely", "Almost Certain"]:
-                return "HIGH"
-            elif likelihood == "Possible":
-                return "MEDIUM"
-            else:
-                return "LOW"
-
+    if impact == "Major":
+        if likelihood in ["Likely", "Almost Certain"]:
+            return "HIGH"
+        elif likelihood == "Possible":
+            return "MEDIUM"
         return "LOW"
 
-    for r in risks:
-        r.rating = rate(r.likelihood, r.impact)
+    if impact == "Moderate":
+        if likelihood in ["Likely", "Almost Certain"]:
+            return "MEDIUM"
+        return "LOW"
 
-    # =========================================================
-    # RULE 7.6 — RISK TREATMENT
-    # =========================================================
-    for r in risks:
-        if r.rating == "CRITICAL":
-            twin.insights.append(Insight(
-                f"Immediate mitigation required: {r.name}",
-                "Rule 7.6",
-                "CRITICAL"
-            ))
+    return "LOW"
 
-    # =========================================================
-    # RULE 7.7 — COMPLIANCE MATURITY
-    # =========================================================
-    referral_score = {
-        "Written": 100,
-        "Informal": 50,
+
+# =============================
+# RULE 7.6 — RISK TREATMENT
+# =============================
+def treatment(level):
+    if level == "CRITICAL":
+        return "IMMEDIATE MITIGATION"
+    if level == "HIGH":
+        return "MITIGATE IN 30 DAYS"
+    if level == "MEDIUM":
+        return "MONITOR"
+    return "ACCEPT"
+
+
+# =============================
+# RULE 7.7 — COMPLIANCE MATURITY
+# =============================
+def compliance(data):
+    score = 0
+
+    score += {
+        "Automated": 100,
+        "Manual": 60,
+        "Onboarding": 30,
         "None": 0
-    }.get(Q6, 0)
+    }.get(data.q2_sanctions, 0) * 0.35
 
-    compliance = (
-        screening_score * 0.35 +
-        ubo_score * 0.35 +
-        (100 if Q1 == "Yes" else 0) * 0.15 +
-        referral_score * 0.15
+    score += {
+        "Yes": 100,
+        "Sometimes": 40,
+        "Bank only": 30,
+        "No": 0
+    }.get(data.q3_ubo, 0) * 0.35
+
+    score += {
+        "Yes": 100,
+        "Sometimes": 50,
+        "No": 0
+    }.get(data.q1_contractor_insurance, 0) * 0.15
+
+    score += {
+        "Yes": 100,
+        "Informal": 50,
+        "No": 0
+    }.get(data.q6_referral_policy, 0) * 0.15
+
+    if score >= 75:
+        level = "ADVANCED"
+    elif score >= 50:
+        level = "DEVELOPING"
+    elif score >= 25:
+        level = "BASIC"
+    else:
+        level = "NON_EXISTENT"
+
+    return {"score": score, "level": level}
+
+
+# =============================
+# RULE 7.8 — AML RISK
+# =============================
+def aml(data):
+    if data.q3_ubo == "No" or data.q2_sanctions == "None":
+        return "CRITICAL"
+
+    if data.q3_ubo == "Sometimes":
+        return "HIGH"
+
+    return "MEDIUM"
+
+
+# =============================
+# RULE 7.9 — RESILIENCE
+# =============================
+def resilience(data):
+    runway = data.q5_runway
+
+    if runway >= 12:
+        return "STRONG"
+    elif runway >= 6:
+        return "MODERATE"
+    elif runway >= 3:
+        return "WEAK"
+    else:
+        return "CRITICAL"
+
+
+# =============================
+# RULE 7.10 — ENTERPRISE RISK
+# =============================
+def enterprise_risk(data):
+    risks = identify_risks(data)
+
+    critical = 0
+    high = 0
+
+    for r in risks:
+        level = risk_rating(r[1], r[2])
+        if level == "CRITICAL":
+            critical += 1
+        elif level == "HIGH":
+            high += 1
+
+    compliance_score = compliance(data)["score"]
+    resilience_score = {
+        "STRONG": 100,
+        "MODERATE": 70,
+        "WEAK": 40,
+        "CRITICAL": 0
+    }[resilience(data)]
+
+    score = 1.0 - (
+        (critical / 5) * 0.25 +
+        (high / 10) * 0.15 +
+        (compliance_score / 100) * 0.3 +
+        (resilience_score / 100) * 0.3
     )
 
-    if compliance >= 75:
-        maturity = "ADVANCED"
-    elif compliance >= 50:
-        maturity = "DEVELOPING"
-    elif compliance >= 25:
-        maturity = "BASIC"
-    else:
-        maturity = "NON-EXISTENT"
+    return {
+        "score": score * 100,
+        "alert": "Enterprise at risk" if score < 0.5 else None
+    }
 
-        twin.insights.append(Insight(
-            "Critical compliance deficiency",
-            "Rule 7.7",
-            "CRITICAL"
-        ))
 
-    silo["compliance_maturity"] = maturity
-
-    # =========================================================
-    # RULE 7.8 — AML RISK
-    # =========================================================
-    if Q3 == "Yes" and Q2 in ["Automated", "Periodic"] and Q6 == "Written":
-        aml = "MEDIUM"
-    elif Q3 == "Occasionally":
-        aml = "HIGH"
-    else:
-        aml = "CRITICAL"
-
-        twin.insights.append(Insight(
-            "AML regulatory risk",
-            "Rule 7.8",
-            "CRITICAL"
-        ))
-
-    silo["aml_risk"] = aml
-
-    # =========================================================
-    # RULE 7.9 — RESILIENCE
-    # =========================================================
-    if Q5 > 12:
-        resilience = "STRONG"
-        resilience_score = 100
-    elif Q5 >= 6:
-        resilience = "MODERATE"
-        resilience_score = 70
-    elif Q5 >= 3:
-        resilience = "WEAK"
-        resilience_score = 40
-    else:
-        resilience = "CRITICAL"
-        resilience_score = 0
-
-        twin.insights.append(Insight(
-            "Critical cash runway risk",
-            "Rule 7.9",
-            "CRITICAL"
-        ))
-
-    silo["resilience"] = resilience
-
-    # =========================================================
-    # RULE 7.10 — ENTERPRISE RISK SCORE
-    # =========================================================
-    critical_count = len([r for r in risks if r.rating == "CRITICAL"])
-    high_count = len([r for r in risks if r.rating == "HIGH"])
-
-    enterprise_score = 1.0 - (
-        (critical_count / 5) * 0.25 +
-        (high_count / 10) * 0.15 +
-        (compliance / 100) * 0.30 +
-        (resilience_score / 100) * 0.30
-    )
-
-    enterprise_score *= 100
-
-    silo["enterprise_risk_score"] = enterprise_score
-
-    if enterprise_score < 50:
-        twin.insights.append(Insight(
-            "Enterprise at risk — board-level intervention required",
-            "Rule 7.10",
-            "CRITICAL"
-        ))
-
-    # =========================================================
-    # SAVE
-    # =========================================================
-    twin.risks.extend(risks)
-    twin.silos["risk"] = silo
+# =============================
+# MAIN
+# =============================
+def run_silo7(data, silo4=None):
+    return {
+        "liability": liability_risk(data),
+        "sanctions": sanctions_risk(data),
+        "financial_distress": financial_distress(data, silo4),
+        "identified_risks": identify_risks(data),
+        "compliance": compliance(data),
+        "aml": aml(data),
+        "resilience": resilience(data),
+        "enterprise_risk": enterprise_risk(data)
+    }

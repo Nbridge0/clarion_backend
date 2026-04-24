@@ -1,264 +1,265 @@
-from app.types.results import Insight
+from typing import Dict, Any, List
 
 
-def process_efficiency_silo(data, twin):
-    """
-    FULL IMPLEMENTATION:
-    Rule 3.1 → 3.10
-    """
-
-    Q2 = data.get("sop_coverage", "None")  # All / Most / Some / None
-    Q3 = data.get("software_usage", "None")  # Yes / Some / Not enough / None
-    Q4 = data.get("automation", "No")  # Yes / No
-    Q5 = data.get("ai_usage", "No")  # Yes / No
-    Q6 = data.get("ai_areas", [])  # list
-    Q7 = data.get("digital_readiness", 0)  # 0–10
-    Q8 = data.get("bottleneck", "")
-    Q8b = data.get("bottleneck_severity", "")
-    Q9 = data.get("backup_vendors", "No")  # Yes / Some / No
-
-    silo = {}
-
-    # =========================================================
-    # RULE 3.1 — DIGITAL INTENSITY
-    # =========================================================
-    software_score = {
+# =============================
+# RULE 3.1 — DIGITAL INTENSITY
+# =============================
+def digital_intensity(data):
+    tool_map = {
         "Yes": 100,
         "Some": 60,
         "Not enough": 40,
         "None": 0
-    }.get(Q3, 0)
+    }
 
-    automation_score = 100 if Q4 == "Yes" else 0
-    ai_score = 100 if Q5 == "Yes" else 0
-    ai_breadth = (len(Q6) / 6) * 100 if Q6 else 0
-    readiness_score = (Q7 / 10) * 100
+    tool_score = tool_map.get(data.q3_tools, 0)
+    automation_score = 100 if data.q4_automation == "Yes" else 0
+    ai_score = 100 if data.q5_ai == "Yes" else 0
 
-    digital_intensity = (
-        software_score +
-        automation_score +
-        ai_score +
-        ai_breadth +
-        readiness_score
-    ) / 5
+    ai_breadth = len(data.q6_ai_areas or []) / 6 * 100
+    readiness = (data.q7_digital_readiness or 0) * 10
 
-    silo["digital_intensity"] = digital_intensity
+    avg = (tool_score + automation_score + ai_score + ai_breadth + readiness) / 5
 
-    # =========================================================
-    # RULE 3.2 — TRANSFORMATION MANAGEMENT
-    # =========================================================
-    sop_score = {
+    return {
+        "score": avg,
+        "level": "HIGH" if avg >= 60 else "LOW"
+    }
+
+
+# =============================
+# RULE 3.2 — TRANSFORMATION MGMT
+# =============================
+def transformation_management(data):
+    sop_map = {
         "All": 100,
         "Most": 75,
         "Some": 40,
         "None": 0
-    }.get(Q2, 0)
-
-    strategy_clarity = twin.silos.get("strategy", {}).get("strategy_clarity", 50)
-    employee_alignment = 100 if twin.silos.get("strategy", {}).get("strategy_clarity_label") == "HIGH" else 50
-
-    transformation = (sop_score + strategy_clarity + employee_alignment) / 3
-
-    silo["transformation_management"] = transformation
-
-    # =========================================================
-    # RULE 3.3 — MIT QUADRANTS
-    # =========================================================
-    if digital_intensity >= 60 and transformation >= 60:
-        quadrant = "DIGIRATI"
-
-    elif digital_intensity >= 60 and transformation < 60:
-        quadrant = "FASHIONISTAS"
-
-        twin.insights.append(Insight(
-            "High tech spend but weak governance — risk of waste",
-            "Rule 3.3",
-            "HIGH"
-        ))
-
-    elif digital_intensity < 60 and transformation >= 60:
-        quadrant = "CONSERVATIVES"
-
-        twin.insights.append(Insight(
-            "Strong processes but underusing technology",
-            "Rule 3.3",
-            "MEDIUM"
-        ))
-
-    else:
-        quadrant = "BEGINNERS"
-
-        twin.insights.append(Insight(
-            "Early digital stage — high transformation potential",
-            "Rule 3.3",
-            "HIGH"
-        ))
-
-    silo["digital_quadrant"] = quadrant
-
-    # =========================================================
-    # RULE 3.4 — BOTTLENECK CLASSIFICATION
-    # =========================================================
-    bottleneck_map = {
-        "Not enough staff/capacity": "PEOPLE",
-        "Staff skill gaps/training needs": "PEOPLE",
-        "Cash flow/working capital constraints": "FINANCIAL",
-        "Inefficient processes/workflows": "PROCESS",
-        "Lack of clear procedures/SOPs": "PROCESS",
-        "Decision-making delays/approvals": "PROCESS",
-        "Technology/system limitations": "TECHNOLOGY",
-        "Supplier/vendor dependencies": "VENDOR",
-        "Sales/lead generation challenges": "COMMERCIAL",
-        "Quality control issues": "QUALITY",
-        "No significant bottleneck": None
     }
 
-    bottleneck = bottleneck_map.get(Q8)
-    silo["bottleneck"] = bottleneck
+    sop_score = sop_map.get(data.q2_sops, 0)
 
-    # severity
-    silo["bottleneck_severity"] = Q8b
+    strategy_score = 100 if data.q10_written_strategy == "Yes" else 0
+    alignment_score = 100 if data.q9_employee_understanding == "Yes" else 40
 
-    # =========================================================
-    # RULE 3.5 — PROCESS WASTE ESTIMATION
-    # =========================================================
-    base_waste = {
+    avg = (sop_score + strategy_score + alignment_score) / 3
+
+    return {
+        "score": avg,
+        "level": "STRONG" if avg >= 60 else "WEAK"
+    }
+
+
+# =============================
+# RULE 3.3 — MIT QUADRANT
+# =============================
+def mit_quadrant(di, tm):
+    if di >= 60 and tm >= 60:
+        return "DIGIRATI"
+
+    if di >= 60 and tm < 60:
+        return "FASHIONISTAS"
+
+    if di < 60 and tm >= 60:
+        return "CONSERVATIVES"
+
+    return "BEGINNERS"
+
+
+# =============================
+# RULE 3.4 — BOTTLENECK
+# =============================
+BOTTLENECK_MAP = {
+    "Not enough staff/capacity": "PEOPLE",
+    "Staff skill gaps/training needs": "PEOPLE",
+    "Cash flow/working capital constraints": "FINANCIAL",
+    "Inefficient processes/workflows": "PROCESS",
+    "Lack of clear procedures/SOPs": "PROCESS",
+    "Decision-making delays/approvals": "PROCESS",
+    "Technology/system limitations": "TECHNOLOGY",
+    "Supplier/vendor dependencies": "VENDOR",
+    "Sales/lead generation challenges": "COMMERCIAL",
+    "Quality control issues": "QUALITY",
+}
+
+
+def bottleneck(data):
+    category = BOTTLENECK_MAP.get(data.q8_bottleneck, None)
+
+    severity = data.q8b_severity
+
+    return {
+        "category": category,
+        "severity": severity
+    }
+
+
+# =============================
+# RULE 3.5 — WASTE %
+# =============================
+def waste_estimate(data):
+    sop_base = {
         "None": 35,
         "Some": 25,
         "Most": 15,
         "All": 5
-    }.get(Q2, 35)
+    }
 
-    waste = base_waste
+    waste = sop_base.get(data.q2_sops, 25)
 
-    if Q8b == "Critical impact":
+    if data.q8b_severity == "Critical impact":
         waste += 20
 
-    if twin.silos.get("strategy", {}).get("systems_efficiency", 100) < 50:
+    if data.q8_duplication == "A lot":
         waste += 15
 
-    if Q4 == "No" and len(Q6) > 0:
+    if data.q4_automation == "No" and len(data.q6_ai_areas or []) > 2:
         waste += 10
 
-    admin = twin.silos.get("strategy", {}).get("staff_alignment", 50)
-    if admin < 50:
+    if data.q7_admin_percent > 50:
         waste += 15
 
-    waste = min(waste, 60)
+    return min(waste, 60)
 
-    silo["waste_percentage"] = waste
 
-    # =========================================================
-    # RULE 3.6 — VENDOR RISK
-    # =========================================================
-    if Q9 == "No" and bottleneck == "VENDOR":
-        twin.insights.append(Insight(
-            "Vendor single point of failure",
-            "Rule 3.6",
-            "CRITICAL"
-        ))
+# =============================
+# RULE 3.6 — VENDOR RISK
+# =============================
+def vendor_risk(data, bottleneck_category):
+    if data.q8_vendor_backup == "No" and bottleneck_category == "VENDOR":
+        return {
+            "risk": "HIGH",
+            "alert": "Vendor single point of failure"
+        }
 
-    elif Q9 == "Some":
-        twin.insights.append(Insight(
-            "Partial vendor risk — audit required",
-            "Rule 3.6",
-            "MEDIUM"
-        ))
+    if data.q8_vendor_backup == "Some":
+        return {
+            "risk": "MEDIUM"
+        }
 
-    # =========================================================
-    # RULE 3.7 — AI PRIORITY MATRIX
-    # =========================================================
-    ai_priority = {}
+    return {"risk": "LOW"}
 
-    for area in Q6:
+
+# =============================
+# RULE 3.7 — AI PRIORITY
+# =============================
+def ai_priority(data, bottleneck_category):
+    scores = {}
+
+    for area in data.q6_ai_areas or []:
         score = 0
 
-        if bottleneck == "COMMERCIAL" and "Sales" in area:
+        if bottleneck_category == "COMMERCIAL" and area == "Sales":
             score += 40
 
-        if bottleneck == "PROCESS" and "Operations" in area:
+        if bottleneck_category == "PROCESS" and area == "Operations":
             score += 40
 
-        if bottleneck == "FINANCIAL" and "Finance" in area:
+        if bottleneck_category == "FINANCIAL" and area == "Finance":
             score += 40
 
-        if "Better tools/technology" in twin.silos.get("hr", {}).get("improvements", []):
+        if "Better tools/technology" in data.q6_perf_improvements:
             score += 10
 
-        if Q4 == "No":
+        if "Better processes/workflows" in data.q6_perf_improvements:
+            if area in ["Operations", "Admin"]:
+                score += 30
+
+        if data.q7_admin_percent > 50 and area == "Admin":
+            score += 20
+
+        if data.q4_automation == "No":
             score += 10
 
-        ai_priority[area] = score
+        scores[area] = score
 
-    sorted_ai = sorted(ai_priority.items(), key=lambda x: x[1], reverse=True)
+    sorted_areas = sorted(scores.items(), key=lambda x: x[1], reverse=True)
 
-    if sorted_ai:
-        silo["top_ai_priority"] = sorted_ai[0][0]
+    return sorted_areas
 
-        twin.insights.append(Insight(
-            f"Start AI pilot in {sorted_ai[0][0]}",
-            "Rule 3.7",
-            "HIGH"
-        ))
 
-    # =========================================================
-    # RULE 3.8 — DIGITAL REALITY CHECK
-    # =========================================================
-    if Q7 >= 7 and (Q3 in ["None", "Not enough"] or Q4 == "No" or Q2 == "None"):
-        twin.insights.append(Insight(
-            "Digital readiness perception gap",
-            "Rule 3.8",
-            "HIGH"
-        ))
+# =============================
+# RULE 3.8 — READINESS GAP
+# =============================
+def readiness_gap(data):
+    if data.q7_digital_readiness >= 7:
+        if data.q3_tools in ["None", "Not enough"] or data.q4_automation == "No" or data.q2_sops in ["None"]:
+            return {
+                "warning": "Digital readiness perception gap",
+                "adjusted_score": data.q7_digital_readiness * 0.6
+            }
 
-        silo["digital_intensity"] *= 0.6
+    return None
 
-    # =========================================================
-    # RULE 3.9 — SOP IMPACT CROSS-SILO
-    # =========================================================
-    if Q2 in ["None", "Some"]:
-        twin.insights.append(Insight(
-            "Weak SOP coverage impacting consistency and accountability",
-            "Rule 3.9",
-            "HIGH"
-        ))
 
-    # =========================================================
-    # RULE 3.10 — TRANSFORMATION ROADMAP
-    # =========================================================
-    roadmap = []
+# =============================
+# RULE 3.9 — SOP IMPACT
+# =============================
+def sop_impact(data):
+    if data.q2_sops in ["None", "Some"]:
+        return {
+            "systems_cap": 40,
+            "accountability_cap": 50,
+            "service_risk": True
+        }
 
+    return None
+
+
+# =============================
+# RULE 3.10 — ROADMAP
+# =============================
+def transformation_roadmap(quadrant):
     if quadrant == "BEGINNERS":
-        roadmap = [
-            "Document core processes",
-            "Eliminate primary bottleneck",
-            "Pilot automation"
+        return [
+            "Document processes",
+            "Fix bottlenecks",
+            "Start automation pilot"
         ]
 
-    elif quadrant == "FASHIONISTAS":
-        roadmap = [
+    if quadrant == "FASHIONISTAS":
+        return [
             "Audit tech ROI",
             "Standardize processes",
-            "Align tech to strategy"
+            "Align tech with strategy"
         ]
 
-    elif quadrant == "CONSERVATIVES":
-        roadmap = [
+    if quadrant == "CONSERVATIVES":
+        return [
             "Identify automation opportunities",
             "Pilot AI",
             "Scale automation"
         ]
 
-    elif quadrant == "DIGIRATI":
-        roadmap = [
+    if quadrant == "DIGIRATI":
+        return [
             "Optimize systems",
-            "Advanced AI integration",
+            "Advanced AI",
             "Build tech moat"
         ]
 
-    silo["transformation_roadmap"] = roadmap
 
-    # =========================================================
-    # SAVE SILO
-    # =========================================================
-    twin.silos["efficiency"] = silo
+# =============================
+# MAIN
+# =============================
+def run_silo3(data):
+    di = digital_intensity(data)
+    tm = transformation_management(data)
+
+    quadrant = mit_quadrant(di["score"], tm["score"])
+
+    bottleneck_data = bottleneck(data)
+
+    return {
+        "digital_intensity": di,
+        "transformation_management": tm,
+        "quadrant": quadrant,
+        "bottleneck": bottleneck_data,
+        "waste_percent": waste_estimate(data),
+        "vendor_risk": vendor_risk(data, bottleneck_data["category"]),
+        "ai_priorities": ai_priority(data, bottleneck_data["category"]),
+        "readiness_gap": readiness_gap(data),
+        "sop_impact": sop_impact(data),
+        "roadmap": transformation_roadmap(quadrant)
+    }

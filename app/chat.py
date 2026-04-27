@@ -15,6 +15,9 @@ OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 if not SUPABASE_URL or not SUPABASE_KEY:
     raise Exception("Missing Supabase ENV in chat.py")
 
+if not OPENAI_API_KEY:
+    raise Exception("Missing OPENAI_API_KEY")
+
 # =========================
 # CLIENTS
 # =========================
@@ -51,25 +54,30 @@ def save_message(chat_id, role, content):
         print("SAVE ERROR:", e)
 
 # =========================
-# AI RESPONSE (UPDATED 🔥)
+# AI RESPONSE
 # =========================
-def ask_ai(message, history, user_id=None):
+def ask_ai(message, history, user_id):
 
     # =========================
-    # 1️⃣ LOAD USER ANSWERS
+    # LOAD USER ANSWERS
     # =========================
-    answers_res = supabase.table("answers") \
-        .select("question_id, answer") \
-        .eq("user_id", user_id) \
-        .execute()
+    try:
+        answers_res = supabase.table("answers") \
+            .select("question_id, answer") \
+            .eq("user_id", user_id) \
+            .execute()
 
-    answers = {
-        row["question_id"]: row["answer"]
-        for row in (answers_res.data or [])
-    }
+        answers = {
+            row["question_id"]: row["answer"]
+            for row in (answers_res.data or [])
+        }
+
+    except Exception as e:
+        print("ANSWERS ERROR:", e)
+        answers = {}
 
     # =========================
-    # 2️⃣ RUN ANALYSIS ENGINE
+    # RUN ANALYSIS
     # =========================
     try:
         from app.engine.master_engine import run_full_analysis
@@ -79,21 +87,28 @@ def ask_ai(message, history, user_id=None):
         analysis = {}
 
     # =========================
-    # 3️⃣ SYSTEM PROMPT
+    # SYSTEM PROMPT (STRICT CONTROL)
     # =========================
     SYSTEM_PROMPT = f"""
-You are PULSE AI, a strict business intelligence assistant.
+You are PULSE AI, a business intelligence assistant.
 
-RULES:
-- ONLY use the provided company data
-- DO NOT give generic advice
-- DO NOT hallucinate
-- If missing data → say:
-"I don’t have enough data from your assessment to answer that."
+Your job is to answer ONLY based on the user's company data.
 
-Be concise and actionable.
+STRICT RULES:
 
-COMPANY DATA:
+1. If the user asks something that can be answered using the provided data → answer clearly and concisely.
+
+2. If the question is NOT related to the provided data → respond EXACTLY with:
+"Sorry! I can only answer questions related to your data in Pulse. Try asking something within that scope."
+
+3. If the user message is a greeting or casual message (e.g. hi, hello, hey):
+→ respond naturally and politely.
+
+4. DO NOT hallucinate
+5. DO NOT give generic advice outside the data
+6. Be concise and actionable
+
+--- COMPANY DATA ---
 
 ANSWERS:
 {answers}
@@ -103,30 +118,23 @@ ANALYSIS:
 """
 
     # =========================
-    # 4️⃣ BUILD MESSAGES
+    # BUILD MESSAGES
     # =========================
-    messages = [
-        {"role": "system", "content": SYSTEM_PROMPT}
-    ]
-
+    messages = [{"role": "system", "content": SYSTEM_PROMPT}]
     messages.extend(history)
-
-    messages.append({
-        "role": "user",
-        "content": message
-    })
+    messages.append({"role": "user", "content": message})
 
     # =========================
-    # 5️⃣ OPENAI CALL
+    # OPENAI CALL
     # =========================
     try:
-        res = openai_client.chat.completions.create(
+        response = openai_client.chat.completions.create(
             model="gpt-4o-mini",
             messages=messages,
             temperature=0.2
         )
 
-        return res.choices[0].message.content.strip()
+        return response.choices[0].message.content.strip()
 
     except Exception as e:
         print("OPENAI ERROR:", e)

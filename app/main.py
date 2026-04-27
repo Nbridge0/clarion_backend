@@ -7,10 +7,10 @@ from fastapi import FastAPI, HTTPException, Header, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import Dict, Any
+from datetime import datetime
 
 from dotenv import load_dotenv
 from supabase import create_client
-from datetime import datetime
 
 from app.engine.master_engine import run_full_analysis
 from app.chat import ask_ai, save_message, get_chat_history
@@ -26,10 +26,12 @@ SUPABASE_KEY = os.getenv("SUPABASE_KEY")
 if not SUPABASE_URL or not SUPABASE_KEY:
     raise Exception("Missing Supabase environment variables")
 
+print("✅ Supabase connected:", SUPABASE_URL)
+
 supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
 
 # =========================
-# AUTH
+# AUTH SYSTEM
 # =========================
 def get_current_user(authorization: str = Header(None)):
     if not authorization:
@@ -50,7 +52,10 @@ def get_current_user(authorization: str = Header(None)):
 # =========================
 # APP INIT
 # =========================
-app = FastAPI(title="Clarion Digital Twin API")
+app = FastAPI(
+    title="Clarion Digital Twin API",
+    version="1.0.0"
+)
 
 app.add_middleware(
     CORSMiddleware,
@@ -65,6 +70,10 @@ app.add_middleware(
 # =========================
 class AnalysisRequest(BaseModel):
     data: Dict[str, Any]
+
+class SimulationRequest(BaseModel):
+    base_data: Dict[str, Any]
+    changes: Dict[str, Any]
 
 class LoginRequest(BaseModel):
     email: str
@@ -88,8 +97,12 @@ class ChatRequest(BaseModel):
 def root():
     return {"status": "running"}
 
+@app.get("/health")
+def health():
+    return {"status": "ok"}
+
 # =========================
-# ANALYSIS
+# ANALYZE
 # =========================
 @app.post("/analyze")
 def analyze(request: AnalysisRequest, user: str = Depends(get_current_user)):
@@ -97,36 +110,11 @@ def analyze(request: AnalysisRequest, user: str = Depends(get_current_user)):
         result = run_full_analysis(request.data)
         return {"success": True, "result": result}
     except Exception as e:
-        return {"success": False, "error": str(e)}
-
-# =========================
-# CREATE USER
-# =========================
-@app.post("/create-user")
-def create_user(request: CreateUserRequest, x_admin_key: str = Header(None)):
-
-    if x_admin_key != os.getenv("ADMIN_KEY"):
-        raise HTTPException(status_code=403, detail="Unauthorized")
-
-    existing = supabase.table("users") \
-        .select("*") \
-        .eq("email", request.email) \
-        .execute()
-
-    if existing.data:
-        raise HTTPException(status_code=400, detail="User exists")
-
-    hashed_pw = bcrypt.hashpw(
-        request.password.encode(),
-        bcrypt.gensalt()
-    ).decode()
-
-    result = supabase.table("users").insert({
-        "email": request.email,
-        "password": hashed_pw
-    }).execute()
-
-    return {"success": True, "user": result.data[0]}
+        return {
+            "success": False,
+            "error": str(e),
+            "trace": traceback.format_exc()
+        }
 
 # =========================
 # LOGIN
@@ -164,79 +152,55 @@ def login(request: LoginRequest):
     }
 
 # =========================
-# SUBMIT ANSWERS
-# =========================
-@app.post("/submit")
-def submit_answers(request: SubmitRequest, user_id: str = Depends(get_current_user)):
-
-    rows = []
-    for qid, ans in request.answers.items():
-        rows.append({
-            "user_id": user_id,
-            "question_id": qid,
-            "answer": ans,
-            "updated_at": datetime.utcnow().isoformat()
-        })
-
-    res = supabase.table("answers").upsert(
-        rows,
-        on_conflict="user_id,question_id"
-    ).execute()
-
-    return {"success": True, "saved": res.data}
-
-# =========================
-# CHAT (UPDATED 🔥)
+# CHAT
 # =========================
 @app.post("/chat/message")
-def chat(req: ChatRequest, user_id: str = Depends(get_current_user)):
+def chat(
+    req: ChatRequest,
+    user_id: str = Depends(get_current_user)
+):
+    try:
+        # Create chat if needed
+        if not req.chat_id:
+            chat = supabase.table("chats").insert({
+                "title": "New Chat"
+            }).execute()
 
-    # Create chat if needed
-    if not req.chat_id:
-        chat = supabase.table("chats").insert({
-            "title": "New Chat",
-            "user_id": user_id
-        }).execute()
+            chat_id = chat.data[0]["id"]
+        else:
+            chat_id = req.chat_id
 
-        chat_id = chat.data[0]["id"]
-    else:
-        chat_id = req.chat_id
+        # Save user message
+        save_message(chat_id, "user", req.message)
 
-    # Save user message
-    save_message(chat_id, "user", req.message)
+        # Get history
+        history = get_chat_history(chat_id)
 
-    # Get history
-    history = get_chat_history(chat_id)
+        # Get AI response
+        answer = ask_ai(req.message, history, user_id)
 
-    # AI response (WITH USER CONTEXT 🔥)
-    answer = ask_ai(req.message, history, user_id)
+        # Save AI message
+        save_message(chat_id, "assistant", answer)
 
-    # Save AI message
-    save_message(chat_id, "assistant", answer)
+        return {
+            "chat_id": chat_id,
+            "answer": answer
+        }
 
-    return {
-        "chat_id": chat_id,
-        "answer": answer
-    }
+    except Exception as e:
+        print("CHAT ERROR:", e)
+        raise HTTPException(status_code=500, detail=str(e))
 
 # =========================
-# GET CHATS
+# FETCH CHATS
 # =========================
 @app.get("/chats")
-def get_chats(user_id: str = Depends(get_current_user)):
-    res = supabase.table("chats") \
-        .select("*") \
-        .eq("user_id", user_id) \
-        .execute()
-
+def get_chats():
+    res = supabase.table("chats").select("*").execute()
     return res.data
 
-# =========================
-# GET MESSAGES
-# =========================
 @app.get("/chats/{chat_id}")
-def get_messages(chat_id: int, user_id: str = Depends(get_current_user)):
-
+def get_messages(chat_id: int):
     res = supabase.table("messages") \
         .select("*") \
         .eq("chat_id", chat_id) \

@@ -152,6 +152,39 @@ def login(request: LoginRequest):
     }
 
 # =========================
+# SUBMIT ANSWERS
+# =========================
+@app.post("/submit")
+def submit_answers(
+    request: SubmitRequest,
+    user_id: str = Depends(get_current_user)
+):
+    try:
+        answers = request.answers
+
+        rows = []
+
+        for question_id, answer in answers.items():
+            rows.append({
+                "user_id": user_id,
+                "question_id": int(question_id),
+                "answer": answer,
+                "created_at": datetime.utcnow().isoformat()
+            })
+
+        # insert into Supabase
+        supabase.table("answers").insert(rows).execute()
+
+        return {
+            "success": True,
+            "saved": len(rows)
+        }
+
+    except Exception as e:
+        print("SUBMIT ERROR:", e)
+        raise HTTPException(status_code=500, detail=str(e))
+
+# =========================
 # CHAT
 # =========================
 @app.post("/chat/message")

@@ -172,8 +172,11 @@ def submit_answers(
                 "updated_at": datetime.utcnow().isoformat()
             })
 
-        # ✅ Save answers
-        supabase.table("answers").insert(rows).execute()
+        # ✅ Save answers (UPSERT to avoid duplicates)
+        supabase.table("answers").upsert(
+            rows,
+            on_conflict="user_id,question_id"
+        ).execute()
 
         # 🔥 RUN YOUR SILOS ENGINE
         analysis = run_full_analysis(answers)

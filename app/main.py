@@ -169,21 +169,30 @@ def submit_answers(
                 "user_id": user_id,
                 "question_id": int(question_id),
                 "answer": answer,
-                "created_at": datetime.utcnow().isoformat()
+                "updated_at": datetime.utcnow().isoformat()
             })
 
-        # insert into Supabase
+        # ✅ Save answers
         supabase.table("answers").insert(rows).execute()
+
+        # 🔥 RUN YOUR SILOS ENGINE
+        analysis = run_full_analysis(answers)
+
+        # 🔥 SAVE ANALYSIS (IMPORTANT)
+        supabase.table("analysis").upsert({
+            "user_id": user_id,
+            "result": analysis,
+            "updated_at": datetime.utcnow().isoformat()
+        }).execute()
 
         return {
             "success": True,
-            "saved": len(rows)
+            "analysis": analysis   # 👈 send to frontend
         }
 
     except Exception as e:
         print("SUBMIT ERROR:", e)
         raise HTTPException(status_code=500, detail=str(e))
-
 # =========================
 # CHAT
 # =========================

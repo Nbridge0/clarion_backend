@@ -168,12 +168,23 @@ def submit_answers(
         rows = []
 
         for question_id, answer in incoming_answers.items():
+
+            # ✅ FIX: handles "17", 17, and "q17"
+            clean_question_id = str(question_id).replace("q", "").replace("Q", "").strip()
+
+            if not clean_question_id.isdigit():
+                print("SKIPPING INVALID QUESTION ID:", question_id)
+                continue
+
             rows.append({
                 "user_id": user_id,
-                "question_id": int(question_id),
+                "question_id": int(clean_question_id),
                 "answer": str(answer),
                 "updated_at": datetime.utcnow().isoformat()
             })
+
+        if not rows:
+            raise HTTPException(status_code=400, detail="No valid answers provided")
 
         # 1. Save answers first
         save_res = supabase.table("answers").upsert(
@@ -227,8 +238,6 @@ def submit_answers(
         print("SUBMIT ERROR:", e)
         print(traceback.format_exc())
         raise HTTPException(status_code=500, detail=str(e))
-
-
 # =========================
 # GET SAVED ANSWERS
 # =========================

@@ -68,7 +68,7 @@ def ask_ai(message, history, user_id):
             .execute()
 
         answers = {
-            row["question_id"]: row["answer"]
+            str(row["question_id"]): row["answer"]
             for row in (answers_res.data or [])
         }
 

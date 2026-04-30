@@ -160,42 +160,101 @@ def submit_answers(
     user_id: str = Depends(get_current_user)
 ):
     try:
-        answers = request.answers
+        incoming_answers = request.answers
+
+        if not incoming_answers:
+            raise HTTPException(status_code=400, detail="No answers provided")
 
         rows = []
 
-        for question_id, answer in answers.items():
+        for question_id, answer in incoming_answers.items():
             rows.append({
                 "user_id": user_id,
                 "question_id": int(question_id),
-                "answer": answer,
+                "answer": str(answer),
                 "updated_at": datetime.utcnow().isoformat()
             })
 
-        # ✅ Save answers (UPSERT to avoid duplicates)
-        supabase.table("answers").upsert(
+        # 1. Save answers first
+        save_res = supabase.table("answers").upsert(
             rows,
             on_conflict="user_id,question_id"
         ).execute()
 
-        # 🔥 RUN YOUR SILOS ENGINE
-        analysis = run_full_analysis(answers)
+        print("ANSWERS SAVED:", save_res.data)
 
-        # 🔥 SAVE ANALYSIS (IMPORTANT)
-        supabase.table("analysis").upsert({
-            "user_id": user_id,
-            "result": analysis,
-            "updated_at": datetime.utcnow().isoformat()
-        }).execute()
+        # 2. Fetch all latest answers for this user
+        all_answers_res = supabase.table("answers") \
+            .select("question_id, answer") \
+            .eq("user_id", user_id) \
+            .execute()
+
+        all_answers = {
+            str(row["question_id"]): row["answer"]
+            for row in (all_answers_res.data or [])
+        }
+
+        # 3. Try analysis, but do NOT fail answer saving if analysis fails
+        analysis = None
+        analysis_error = None
+
+        try:
+            analysis = run_full_analysis(all_answers)
+
+            supabase.table("analysis").upsert({
+                "user_id": user_id,
+                "result": analysis,
+                "updated_at": datetime.utcnow().isoformat()
+            }).execute()
+
+        except Exception as analysis_exc:
+            analysis_error = str(analysis_exc)
+            print("ANALYSIS ERROR AFTER ANSWER SAVE:", analysis_error)
+            print(traceback.format_exc())
 
         return {
             "success": True,
-            "analysis": analysis   # 👈 send to frontend
+            "message": "Answers saved successfully",
+            "answers": all_answers,
+            "analysis": analysis,
+            "analysis_error": analysis_error
         }
+
+    except HTTPException:
+        raise
 
     except Exception as e:
         print("SUBMIT ERROR:", e)
+        print(traceback.format_exc())
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# =========================
+# GET SAVED ANSWERS
+# =========================
+@app.get("/answers")
+def get_answers(user_id: str = Depends(get_current_user)):
+    try:
+        res = supabase.table("answers") \
+            .select("question_id, answer") \
+            .eq("user_id", user_id) \
+            .execute()
+
+        answers = {
+            str(row["question_id"]): row["answer"]
+            for row in (res.data or [])
+        }
+
+        return {
+            "success": True,
+            "answers": answers
+        }
+
+    except Exception as e:
+        print("GET ANSWERS ERROR:", e)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 # =========================
 # CHAT
 # =========================

@@ -212,11 +212,18 @@ def submit_answers(
         try:
             analysis = run_full_analysis(all_answers)
 
-            supabase.table("analysis").upsert({
-                "user_id": user_id,
-                "result": analysis,
-                "updated_at": datetime.utcnow().isoformat()
-            }).execute()
+            updated_at = datetime.utcnow().isoformat()
+
+            analysis_save_res = supabase.table("analysis").upsert(
+                {
+                    "user_id": user_id,
+                    "result": analysis,
+                    "updated_at": updated_at
+                },
+                on_conflict="user_id"
+            ).execute()
+
+            print("ANALYSIS SAVED:", analysis_save_res.data)
 
         except Exception as analysis_exc:
             analysis_error = str(analysis_exc)
@@ -228,7 +235,8 @@ def submit_answers(
             "message": "Answers saved successfully",
             "answers": all_answers,
             "analysis": analysis,
-            "analysis_error": analysis_error
+            "analysis_error": analysis_error,
+            "updated_at": updated_at
         }
 
     except HTTPException:

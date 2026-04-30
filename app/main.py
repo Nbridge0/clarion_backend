@@ -254,6 +254,38 @@ def get_answers(user_id: str = Depends(get_current_user)):
         print("GET ANSWERS ERROR:", e)
         raise HTTPException(status_code=500, detail=str(e))
 
+# =========================
+# GET SAVED ANALYSIS
+# =========================
+@app.get("/analysis")
+def get_analysis(user_id: str = Depends(get_current_user)):
+    try:
+        res = supabase.table("analysis") \
+            .select("result, updated_at") \
+            .eq("user_id", user_id) \
+            .order("updated_at", desc=True) \
+            .limit(1) \
+            .execute()
+
+        if not res.data:
+            return {
+                "success": True,
+                "analysis": None,
+                "updated_at": None
+            }
+
+        latest = res.data[0]
+
+        return {
+            "success": True,
+            "analysis": latest.get("result"),
+            "updated_at": latest.get("updated_at")
+        }
+
+    except Exception as e:
+        print("GET ANALYSIS ERROR:", e)
+        raise HTTPException(status_code=500, detail=str(e))
+
 
 # =========================
 # CHAT

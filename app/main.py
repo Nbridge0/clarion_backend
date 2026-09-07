@@ -208,11 +208,10 @@ def submit_answers(
         # 3. Try analysis, but do NOT fail answer saving if analysis fails
         analysis = None
         analysis_error = None
+        updated_at = datetime.utcnow().isoformat()
 
         try:
             analysis = run_full_analysis(all_answers)
-
-            updated_at = datetime.utcnow().isoformat()
 
             analysis_save_res = supabase.table("analysis").upsert(
                 {
@@ -246,8 +245,10 @@ def submit_answers(
         print("SUBMIT ERROR:", e)
         print(traceback.format_exc())
         raise HTTPException(status_code=500, detail=str(e))
+
+
 # =========================
-# GET SAVED ANSWERS
+# GET SAVED ANSWERS + RESUME POSITION
 # =========================
 @app.get("/answers")
 def get_answers(user_id: str = Depends(get_current_user)):
@@ -255,21 +256,53 @@ def get_answers(user_id: str = Depends(get_current_user)):
         res = supabase.table("answers") \
             .select("question_id, answer") \
             .eq("user_id", user_id) \
+            .order("question_id") \
             .execute()
+
+        rows = res.data or []
 
         answers = {
             str(row["question_id"]): row["answer"]
-            for row in (res.data or [])
+            for row in rows
         }
+
+        answered_question_ids = [
+            int(row["question_id"])
+            for row in rows
+            if row.get("question_id") is not None
+        ]
+
+        if not answered_question_ids:
+            current_question = 1
+            completed = False
+        else:
+            highest_answered = max(answered_question_ids)
+
+            completed = (
+                len(set(answered_question_ids)) >= 48
+            )
+
+            if completed:
+                current_question = 48
+            else:
+                current_question = min(
+                    highest_answered + 1,
+                    48
+                )
 
         return {
             "success": True,
-            "answers": answers
+            "answers": answers,
+            "current_question": current_question,
+            "completed": completed
         }
 
     except Exception as e:
         print("GET ANSWERS ERROR:", e)
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(
+            status_code=500,
+            detail=str(e)
+        )
 
 # =========================
 # GET SAVED ANALYSIS

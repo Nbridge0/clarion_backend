@@ -198,6 +198,38 @@ def submit_answers(
 
         print("ANSWERS SAVED:", save_res.data)
 
+        submitted_question_ids = [
+            int(row["question_id"])
+            for row in rows
+        ]
+
+        latest_submitted_question = max(
+            submitted_question_ids 
+        )
+
+        next_question = min(
+            latest_submitted_question + 1,
+            48
+        )
+
+        supabase.table("assessment_progress").upsert(
+            {
+                "user_id": user_id,
+                "current_question": next_question,
+                "completed": False,
+                "updated_at": datetime.utcnow().isoformat()
+            },
+            on_conflict="user_id"
+        ).execute()
+
+        print(
+            "ASSESSMENT POSITION SAVED:",
+            {
+                "user_id": user_id,
+                "current_question": next_question
+            }
+        )
+
         # 2. Fetch all latest answers for this user
         all_answers_res = supabase.table("answers") \
             .select("question_id, answer") \

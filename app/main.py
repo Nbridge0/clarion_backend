@@ -339,10 +339,24 @@ def get_answers(user_id: str = Depends(get_current_user)):
 
         rows = res.data or []
 
-        answers = {
-            str(row["question_id"]): row["answer"]
-            for row in rows
-        }
+        answers = {}
+
+        for row in rows:
+            raw_question_id = str(
+                row.get("question_id") or ""
+            ).strip()
+
+            clean_question_id = (
+                raw_question_id
+                .replace("q", "")
+                .replace("Q", "")
+                .strip()
+            )
+
+            if not clean_question_id.isdigit():
+                continue
+
+            answers[clean_question_id] = row["answer"]
 
         progress_res = (
             supabase
@@ -367,11 +381,24 @@ def get_answers(user_id: str = Depends(get_current_user)):
 
         else:
 
-            answered_question_ids = {
-                int(row["question_id"])
-                for row in rows
-                if row.get("question_id") is not None
-            }
+            answered_question_ids = set()
+
+            for row in rows:
+                raw_question_id = str(
+                    row.get("question_id") or ""
+                ).strip()
+
+                clean_question_id = (
+                    raw_question_id
+                    .replace("q", "")
+                    .replace("Q", "")
+                    .strip()
+                )
+
+                if clean_question_id.isdigit():
+                    answered_question_ids.add(
+                        int(clean_question_id)
+                    )
 
             completed = len(answered_question_ids) >= 48
 

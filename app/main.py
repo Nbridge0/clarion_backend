@@ -9,6 +9,18 @@ from pydantic import BaseModel
 from typing import Dict, Any
 from datetime import datetime
 
+from io import BytesIO
+from fastapi.responses import StreamingResponse
+
+from reportlab.lib.pagesizes import A4
+from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+from reportlab.lib.enums import TA_CENTER
+from reportlab.lib import colors
+from reportlab.platypus import (
+    SimpleDocTemplate,
+    Paragraph
+)
+
 from dotenv import load_dotenv
 from supabase import create_client
 
@@ -459,6 +471,238 @@ def get_analysis(user_id: str = Depends(get_current_user)):
     except Exception as e:
         print("GET ANALYSIS ERROR:", e)
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# =========================
+# DOWNLOAD ANALYSIS PDF
+# =========================
+
+def escape_pdf_text(value):
+    text = str(value or "")
+
+    return (
+        text
+        .replace("&", "&amp;")
+        .replace("<", "&lt;")
+        .replace(">", "&gt;")
+        .replace("\n", "<br/>")
+    )
+
+
+@app.get("/analysis/pdf")
+def download_analysis_pdf(
+    user_id: str = Depends(get_current_user)
+):
+    try:
+        res = (
+            supabase
+            .table("analysis")
+            .select("result, updated_at")
+            .eq("user_id", user_id)
+            .order("updated_at", desc=True)
+            .limit(1)
+            .execute()
+        )
+
+        if not res.data:
+            raise HTTPException(
+                status_code=404,
+                detail="No analysis is available for this account yet."
+            )
+
+        latest = res.data[0]
+
+        analysis = latest.get("result")
+        updated_at = latest.get("updated_at")
+
+        if not analysis:
+            raise HTTPException(
+                status_code=404,
+                detail="No analysis is available for this account yet."
+            )
+
+        buffer = BytesIO()
+
+        doc = SimpleDocTemplate(
+            buffer,
+            pagesize=A4,
+            rightMargin=45,
+            leftMargin=45,
+            topMargin=45,
+            bottomMargin=45,
+            title="Pulse Ontology Analysis"
+        )
+
+        styles = getSampleStyleSheet()
+
+        title_style = ParagraphStyle(
+            "PulseTitle",
+            parent=styles["Title"],
+            fontSize=22,
+            leading=27,
+            alignment=TA_CENTER,
+            textColor=colors.HexColor("#252668"),
+            spaceAfter=10
+        )
+
+        subtitle_style = ParagraphStyle(
+            "PulseSubtitle",
+            parent=styles["Normal"],
+            fontSize=9,
+            leading=13,
+            alignment=TA_CENTER,
+            textColor=colors.HexColor("#7A83A5"),
+            spaceAfter=18
+        )
+
+        heading_style = ParagraphStyle(
+            "PulseHeading",
+            parent=styles["Heading2"],
+            fontSize=13,
+            leading=17,
+            textColor=colors.HexColor("#252668"),
+            spaceBefore=14,
+            spaceAfter=7
+        )
+
+        body_style = ParagraphStyle(
+            "PulseBody",
+            parent=styles["BodyText"],
+            fontSize=10,
+            leading=15,
+            textColor=colors.HexColor("#26354D"),
+            spaceAfter=7
+        )
+
+        story = []
+
+        story.append(
+            Paragraph(
+                "PULSE - ONTOLOGY OVERVIEW",
+                title_style
+            )
+        )
+
+        story.append(
+            Paragraph(
+                "INTELLIGENCE MAPPING",
+                subtitle_style
+            )
+        )
+
+        if updated_at:
+            story.append(
+                Paragraph(
+                    "Analysis updated: " +
+                    escape_pdf_text(updated_at),
+                    subtitle_style
+                )
+            )
+
+        def add_value(label, value):
+            if value is None:
+                return
+
+            clean_label = (
+                str(label)
+                .replace("_", " ")
+                .strip()
+                .title()
+            )
+
+            if isinstance(value, dict):
+                if clean_label:
+                    story.append(
+                        Paragraph(
+                            escape_pdf_text(clean_label),
+                            heading_style
+                        )
+                    )
+
+                for child_key, child_value in value.items():
+                    add_value(
+                        child_key,
+                        child_value
+                    )
+
+                return
+
+            if isinstance(value, list):
+                if clean_label:
+                    story.append(
+                        Paragraph(
+                            escape_pdf_text(clean_label),
+                            heading_style
+                        )
+                    )
+
+                for item in value:
+                    if isinstance(item, (dict, list)):
+                        add_value("", item)
+                    else:
+                        story.append(
+                            Paragraph(
+                                "- " + escape_pdf_text(item),
+                                body_style
+                            )
+                        )
+
+                return
+
+            if clean_label:
+                story.append(
+                    Paragraph(
+                        escape_pdf_text(clean_label),
+                        heading_style
+                    )
+                )
+
+            story.append(
+                Paragraph(
+                    escape_pdf_text(value),
+                    body_style
+                )
+            )
+
+        if isinstance(analysis, dict):
+            for key, value in analysis.items():
+                add_value(key, value)
+        else:
+            story.append(
+                Paragraph(
+                    escape_pdf_text(analysis),
+                    body_style
+                )
+            )
+
+        doc.build(story)
+
+        buffer.seek(0)
+
+        return StreamingResponse(
+            buffer,
+            media_type="application/pdf",
+            headers={
+                "Content-Disposition":
+                    'attachment; filename="pulse-ontology-analysis.pdf"'
+            }
+        )
+
+    except HTTPException:
+        raise
+
+    except Exception as e:
+        print(
+            "DOWNLOAD ANALYSIS PDF ERROR:",
+            e
+        )
+        print(traceback.format_exc())
+
+        raise HTTPException(
+            status_code=500,
+            detail=str(e)
+        )
+
 
 
 # =========================

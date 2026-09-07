@@ -86,6 +86,10 @@ class CreateUserRequest(BaseModel):
 class SubmitRequest(BaseModel):
     answers: Dict[str, Any]
 
+class ProgressRequest(BaseModel):
+    current_question: int
+    completed: bool = False
+
 class ChatRequest(BaseModel):
     chat_id: int | None = None
     message: str
@@ -246,6 +250,48 @@ def submit_answers(
         print(traceback.format_exc())
         raise HTTPException(status_code=500, detail=str(e))
 
+# =========================
+# SAVE ASSESSMENT PROGRESS
+# =========================
+@app.post("/progress")
+def save_progress(
+    request: ProgressRequest,
+    user_id: str = Depends(get_current_user)
+):
+    try:
+
+        current_question = int(request.current_question)
+
+        if current_question < 1:
+            current_question = 1
+
+        if current_question > 48:
+            current_question = 48
+
+        supabase.table("assessment_progress").upsert(
+            {
+                "user_id": user_id,
+                "current_question": current_question,
+                "completed": bool(request.completed),
+                "updated_at": datetime.utcnow().isoformat()
+            },
+            on_conflict="user_id"
+        ).execute()
+
+        return {
+            "success": True,
+            "current_question": current_question,
+            "completed": bool(request.completed)
+        }
+
+    except Exception as e:
+        print("SAVE PROGRESS ERROR:", e)
+        print(traceback.format_exc())
+        raise HTTPException(
+            status_code=500,
+            detail=str(e)
+        )
+
 
 # =========================
 # GET SAVED ANSWERS + RESUME POSITION
@@ -266,27 +312,46 @@ def get_answers(user_id: str = Depends(get_current_user)):
             for row in rows
         }
 
-        answered_question_ids = [
-            int(row["question_id"])
-            for row in rows
-            if row.get("question_id") is not None
-        ]
+        progress_res = (
+            supabase
+            .table("assessment_progress")
+            .select("current_question, completed")
+            .eq("user_id", user_id)
+            .limit(1)
+            .execute()
+        )
 
-        if not answered_question_ids:
-            current_question = 1
-            completed = False
-        else:
-            highest_answered = max(answered_question_ids)
+        if progress_res.data:
 
-            completed = (
-                len(set(answered_question_ids)) >= 48
+            progress = progress_res.data[0]
+
+            current_question = int(
+                progress.get("current_question") or 1
             )
+
+            completed = bool(
+                progress.get("completed", False)
+            )
+
+        else:
+
+            answered_question_ids = {
+                int(row["question_id"])
+                for row in rows
+                if row.get("question_id") is not None
+            }
+
+            completed = len(answered_question_ids) >= 48
 
             if completed:
                 current_question = 48
             else:
-                current_question = min(
-                    highest_answered + 1,
+                current_question = next(
+                    (
+                        question_id
+                        for question_id in range(1, 49)
+                        if question_id not in answered_question_ids
+                    ),
                     48
                 )
 

@@ -224,23 +224,35 @@ def submit_answers(
             48
         )
 
-        supabase.table("assessment_progress").upsert(
-            {
-                "user_id": user_id,
-                "current_question": next_question,
-                "completed": False,
-                "updated_at": datetime.utcnow().isoformat()
-            },
-            on_conflict="user_id"
-        ).execute()
+        try:
+            supabase.table("assessment_progress").upsert(
+                {
+                    "user_id": user_id,
+                    "current_question": next_question,
+                    "completed": False,
+                    "updated_at": datetime.utcnow().isoformat()
+                },
+                on_conflict="user_id"
+            ).execute()
 
-        print(
-            "ASSESSMENT POSITION SAVED:",
-            {
-                "user_id": user_id,
-                "current_question": next_question
-            }
-        )
+            print(
+                "ASSESSMENT POSITION SAVED:",
+                {
+                    "user_id": user_id,
+                    "current_question": next_question
+                }
+            )
+
+        except Exception as progress_exc:
+            print(
+                "ASSESSMENT POSITION SAVE WARNING:",
+                {
+                    "user_id": user_id,
+                    "current_question": next_question,
+                    "error_type": type(progress_exc).__name__,
+                    "error": str(progress_exc)
+                }
+            )
 
         # 2. Fetch all latest answers for this user
         all_answers_res = supabase.table("answers") \

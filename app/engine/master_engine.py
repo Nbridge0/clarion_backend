@@ -1773,8 +1773,8 @@ def evaluate_official_ontology_rules(
 
     sop_incomplete = (
         sop_coverage == "no"
-        or "some" in sop_coverage
-        or "yes for most" in sop_coverage
+        or sop_coverage == "some"
+        or sop_coverage == "yes for some"
     )
 
 
@@ -3088,10 +3088,13 @@ def evaluate_official_ontology_rules(
     if vendor_backup_for_risk:
 
         if "for all critical services" in vendor_backup_for_risk:
-            vendor_vetting_barrier = "MODERATE"
+            vendor_vetting_barrier = "STRONG"
 
-        else:
+        elif "for some" in vendor_backup_for_risk:
             vendor_vetting_barrier = "WEAK"
+
+        elif vendor_backup_for_risk == "no":
+            vendor_vetting_barrier = "ABSENT"
 
 
     if vendor_vetting_barrier:

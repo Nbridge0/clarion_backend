@@ -24,7 +24,10 @@ from reportlab.platypus import (
 from dotenv import load_dotenv
 from supabase import create_client
 
-from app.engine.master_engine import run_full_analysis
+from app.engine.master_engine import (
+    run_full_analysis,
+    run_incremental_analysis
+)
 from app.chat import ask_ai, save_message, get_chat_history
 
 # =========================
@@ -200,15 +203,146 @@ def submit_answers(
             })
 
         if not rows:
-            raise HTTPException(status_code=400, detail="No valid answers provided")
+            raise HTTPException(
+                status_code=400,
+                detail="No valid answers provided"
+            )
 
-        # 1. Save answers first
-        save_res = supabase.table("answers").upsert(
-            rows,
-            on_conflict="user_id,question_id"
-        ).execute()
 
-        print("ANSWERS SAVED:", save_res.data)
+        incoming_question_ids = [
+            int(
+                row["question_id"]
+            )
+            for row in rows
+        ]
+
+
+        existing_answers_res = (
+            supabase
+            .table("answers")
+            .select(
+                "question_id, answer, updated_at"
+            )
+            .eq(
+                "user_id",
+                user_id
+            )
+            .in_(
+                "question_id",
+                incoming_question_ids
+            )
+            .order(
+                "updated_at",
+                desc=True,
+                nullsfirst=False
+            )
+            .execute()
+        )
+
+
+        existing_answers = {}
+
+        for existing_row in (
+            existing_answers_res.data
+            or []
+        ):
+
+            raw_existing_question_id = str(
+                existing_row.get(
+                    "question_id"
+                )
+                or ""
+            ).strip()
+
+            clean_existing_question_id = (
+                raw_existing_question_id
+                .replace(
+                    "q",
+                    ""
+                )
+                .replace(
+                    "Q",
+                    ""
+                )
+                .strip()
+            )
+
+            if not clean_existing_question_id.isdigit():
+                continue
+
+            if clean_existing_question_id in existing_answers:
+                continue
+
+            existing_answers[
+                clean_existing_question_id
+            ] = str(
+                existing_row.get(
+                    "answer"
+                )
+                or ""
+            )
+
+
+        changed_question_ids = []
+
+        for row in rows:
+
+            question_id = int(
+                row["question_id"]
+            )
+
+            question_key = str(
+                question_id
+            )
+
+            new_answer = str(
+                row.get(
+                    "answer"
+                )
+                or ""
+            )
+
+            old_answer = existing_answers.get(
+                question_key
+            )
+
+    # New question or genuinely changed answer.
+            if (
+                old_answer is None
+                or old_answer != new_answer
+            ):
+                changed_question_ids.append(
+                    question_id
+                )
+
+
+        print(
+            "ACTUALLY CHANGED QUESTIONS:",
+            {
+                "submitted": incoming_question_ids,
+                "changed": changed_question_ids
+            }
+        )
+
+
+# =========================================================
+# SAVE THE NEW AUTHORITATIVE ANSWERS
+# =========================================================
+
+        save_res = (
+            supabase
+            .table("answers")
+            .upsert(
+                rows,
+                on_conflict="user_id,question_id"
+            )
+            .execute()
+        )
+
+        print(
+            "ANSWERS SAVED:",
+            save_res.data
+        )
 
         
         # =========================================================
@@ -271,13 +405,57 @@ def submit_answers(
             }
         )
 
+
+        # =========================================================
+        # LOAD CURRENT SAVED ANALYSIS
+        # =========================================================
+
+        previous_analysis = None
+
+        try:
+            previous_analysis_res = (
+                supabase
+                .table("analysis")
+                .select("result")
+                .eq("user_id", user_id)
+                .order(
+                    "updated_at",
+                    desc=True
+                )
+                .limit(1)
+                .execute()
+            )
+
+            if previous_analysis_res.data:
+                previous_analysis = (
+                    previous_analysis_res
+                    .data[0]
+                    .get("result")
+                )
+
+        except Exception as previous_analysis_error:
+            print(
+                "PREVIOUS ANALYSIS LOAD WARNING:",
+                {
+                    "error_type": type(
+                        previous_analysis_error
+                    ).__name__,
+                    "error": str(
+                        previous_analysis_error
+                    )
+                }
+            )
         # 3. Try analysis, but do NOT fail answer saving if analysis fails
         analysis = None
         analysis_error = None
         updated_at = datetime.utcnow().isoformat()
 
         try:
-            analysis = run_full_analysis(all_answers)
+            analysis = run_incremental_analysis(
+                data=all_answers,
+                changed_question_ids=changed_question_ids,
+                previous_analysis=previous_analysis
+            )
 
             analysis_save_res = supabase.table("analysis").upsert(
                 {

@@ -117,7 +117,12 @@ QUESTION_LABELS = {
 # SILO-SPECIFIC QUESTION SCOPE
 # =========================================================
 
-SILO_QUESTION_IDS = {
+# =========================================================
+# SILO EVIDENCE SCOPE
+# =========================================================
+# Which questions each silo is actually allowed to analyse.
+
+SILO_EVIDENCE_QUESTION_IDS = {
     "strategy": {
         1, 2, 3, 4, 5, 6, 7,
         8, 9, 10, 11, 12, 13
@@ -156,6 +161,118 @@ SILO_QUESTION_IDS = {
 
 
 # =========================================================
+# SILO UPDATE DEPENDENCIES
+# =========================================================
+# Which silos need to be regenerated when a question changes.
+
+QUESTION_UPDATE_SILO_IDS = {
+    "strategy": {
+        1, 2, 3, 4, 5, 6, 7,
+        8, 9, 10, 11, 12, 13
+    },
+
+    "people": {
+        4, 5, 6, 10,
+        14, 15, 16, 17, 18, 19, 20
+    },
+
+    "operations": {
+        3, 4, 5, 6, 8, 9, 10, 11, 13,
+        19,
+        21, 22, 23, 24, 25, 26, 27,
+        29
+    },
+
+    "financial": {
+        1, 4, 5, 6, 7, 12,
+        28, 29, 30,
+        38,
+        48
+    },
+
+    "marketing": {
+        1, 2, 3, 7, 12,
+        31, 32, 33, 34, 35, 36, 37,
+        38, 40, 41, 42
+    },
+
+    "service": {
+        2, 3, 4, 5,
+        16, 18, 19, 20,
+        21,
+        33, 34, 35,
+        38, 39, 40, 41, 42
+    },
+
+    "risk": {
+        4, 5, 6, 7, 13,
+        16, 18, 20,
+        21, 27,
+        28, 29, 30,
+        38, 39,
+        43, 44, 45, 46, 47, 48
+    }
+}
+# =========================================================
+# INCREMENTAL ANALYSIS HELPERS
+# =========================================================
+
+def normalise_question_id(value):
+    text = (
+        str(value or "")
+        .replace("q", "")
+        .replace("Q", "")
+        .strip()
+    )
+
+    if not text.isdigit():
+        return None
+
+    question_id = int(text)
+
+    if question_id < 1 or question_id > 48:
+        return None
+
+    return question_id
+
+
+def affected_silos_for_questions(
+    question_ids
+) -> List[str]:
+    """
+    Return every user-facing silo whose evidence scope
+    contains at least one changed assessment question.
+
+    A question may affect several silos.
+    """
+
+    changed_ids = {
+        question_id
+        for question_id in (
+            normalise_question_id(value)
+            for value in (question_ids or [])
+        )
+        if question_id is not None
+    }
+
+    if not changed_ids:
+        return []
+
+    affected = []
+
+    for silo_name, silo_question_ids in QUESTION_UPDATE_SILO_IDS.items():
+
+        if changed_ids.intersection(
+            silo_question_ids
+        ):
+            affected.append(
+                silo_name
+            )
+
+    return affected
+
+
+# =========================================================
 # ANSWER HELPERS
 # =========================================================
 
@@ -189,7 +306,7 @@ def build_answer_evidence(
     Only questions relevant to the current silo are supplied.
     """
 
-    allowed_ids = SILO_QUESTION_IDS.get(
+    allowed_ids = SILO_EVIDENCE_QUESTION_IDS.get(
         silo_name,
         set()
     )
@@ -631,9 +748,7 @@ Return ONLY valid JSON in exactly this structure:
             }
         )
 
-        return {
-            "findings": []
-        }
+        raise
 
 
 # =========================================================
@@ -660,21 +775,9 @@ def run_full_analysis(
     # =====================================================
     # 1. GENERATE USER-FACING SILO ANALYSIS IN PARALLEL
     # =====================================================
-    #
-    # IMPORTANT:
-    #
-    # The user-facing intelligence layer receives ONLY:
-    #
-    # - exact assessment question meaning;
-    # - exact respondent answer.
-    #
-    # It does NOT receive synthetic silo scores,
-    # framework calculations or legacy cross-rules.
-    #
-    # =====================================================
 
     silo_names = list(
-        SILO_QUESTION_IDS.keys()
+        SILO_EVIDENCE_QUESTION_IDS.keys()
     )
 
     intelligent_silos = {}
@@ -709,9 +812,17 @@ def run_full_analysis(
 
                 silo_result = future.result()
 
-                if not isinstance(
-                    silo_result,
-                    dict
+                if (
+                    not isinstance(
+                        silo_result,
+                        dict
+                    )
+                    or not isinstance(
+                        silo_result.get(
+                            "findings"
+                        ),
+                        list
+                    )
                 ):
                     silo_result = {
                         "findings": []
@@ -720,6 +831,19 @@ def run_full_analysis(
                 intelligent_silos[
                     silo_name
                 ] = silo_result
+
+                print(
+                    "PULSE SILO RESULT:",
+                    {
+                        "silo": silo_name,
+                        "finding_count": len(
+                            silo_result.get(
+                                "findings",
+                                []
+                            )
+                        )
+                    }
+                )
 
             except Exception as silo_error:
 
@@ -772,18 +896,6 @@ def run_full_analysis(
 
     # =====================================================
     # 3. OPTIONAL LEGACY DEBUG ANALYSIS
-    # =====================================================
-    #
-    # These deterministic calculations are deliberately
-    # isolated from the normal PULSE response.
-    #
-    # They are executed ONLY when:
-    #
-    # PULSE_INCLUDE_RAW_ANALYSIS=true
-    #
-    # This means an outdated rule can never break the
-    # customer-facing analysis during normal use.
-    #
     # =====================================================
 
     include_raw = (
@@ -901,5 +1013,188 @@ def run_full_analysis(
                 }
             )
 
+
+    return result
+
+# =========================================================
+# INCREMENTAL ANALYSIS
+# =========================================================
+
+def run_incremental_analysis(
+    data: Any,
+    changed_question_ids,
+    previous_analysis: Any = None
+) -> Dict[str, Any]:
+    """
+    Reanalyse ONLY silos affected by the changed questions.
+
+    Existing findings for unrelated silos are preserved.
+
+    Example:
+        Q38 belongs to:
+        - marketing
+        - service
+        - risk
+
+        Therefore all three are regenerated automatically,
+        while strategy, people, operations and financial
+        remain unchanged.
+    """
+
+    if not isinstance(
+        data,
+        dict
+    ):
+        data = {}
+
+    if not isinstance(
+        previous_analysis,
+        dict
+    ):
+        previous_analysis = {}
+
+    previous_silos = previous_analysis.get(
+        "silos"
+    )
+
+    if not isinstance(
+        previous_silos,
+        dict
+    ):
+        previous_silos = {}
+
+    affected_silos = affected_silos_for_questions(
+        changed_question_ids
+    )
+
+    print(
+        "PULSE INCREMENTAL ANALYSIS:",
+        {
+            "changed_question_ids": list(
+                changed_question_ids or []
+            ),
+            "affected_silos": affected_silos
+        }
+    )
+
+    # If there is no usable previous analysis, build everything.
+    if not previous_silos:
+        return run_full_analysis(
+            data
+        )
+
+    # Start from the previous analysis so unrelated silos
+    # remain untouched.
+    merged_silos = {}
+
+    for silo_name in SILO_EVIDENCE_QUESTION_IDS.keys():
+
+        existing = previous_silos.get(
+            silo_name
+        )
+
+        if isinstance(
+            existing,
+            dict
+        ):
+            merged_silos[
+                silo_name
+            ] = existing
+        else:
+            merged_silos[
+                silo_name
+            ] = {
+                "findings": []
+            }
+
+    if not affected_silos:
+        return {
+            "overall_score": None,
+            "silos": merged_silos,
+            "updated_silos": []
+        }
+
+    # Regenerate only affected silos.
+    max_workers = min(
+        4,
+        len(
+            affected_silos
+        )
+    )
+
+    with ThreadPoolExecutor(
+        max_workers=max_workers
+    ) as executor:
+
+        future_to_silo = {}
+
+        for silo_name in affected_silos:
+
+            future = executor.submit(
+                build_intelligent_silo_findings,
+                silo_name=silo_name,
+                answers=data
+            )
+
+            future_to_silo[
+                future
+            ] = silo_name
+
+        for future in as_completed(
+            future_to_silo
+        ):
+
+            silo_name = future_to_silo[
+                future
+            ]
+
+            try:
+                silo_result = future.result()
+
+                if (
+                    isinstance(
+                        silo_result,
+                        dict
+                    )
+                    and isinstance(
+                        silo_result.get(
+                            "findings"
+                        ),
+                        list
+                    )
+                ):
+                    merged_silos[
+                        silo_name
+                    ] = silo_result
+
+                else:
+                    print(
+                        "INCREMENTAL SILO INVALID RESULT:",
+                        silo_name
+                    )
+
+            except Exception as silo_error:
+
+                # IMPORTANT:
+                # Do not destroy the previous valid analysis
+                # just because one OpenAI request failed.
+                print(
+                    "INCREMENTAL SILO ANALYSIS ERROR:",
+                    {
+                        "silo": silo_name,
+                        "error_type": type(
+                            silo_error
+                        ).__name__,
+                        "error": str(
+                            silo_error
+                        )
+                    }
+                )
+
+    result = {
+        "overall_score": None,
+        "silos": merged_silos,
+        "updated_silos": affected_silos
+    }
 
     return result

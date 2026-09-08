@@ -210,60 +210,53 @@ def submit_answers(
 
         print("ANSWERS SAVED:", save_res.data)
 
-        submitted_question_ids = [
-            int(row["question_id"])
-            for row in rows
-        ]
-
-        latest_submitted_question = max(
-            submitted_question_ids 
-        )
-
-        next_question = min(
-            latest_submitted_question + 1,
-            48
-        )
-
-        try:
-            supabase.table("assessment_progress").upsert(
-                {
-                    "user_id": user_id,
-                    "current_question": next_question,
-                    "completed": False,
-                    "updated_at": datetime.utcnow().isoformat()
-                },
-                on_conflict="user_id"
-            ).execute()
-
-            print(
-                "ASSESSMENT POSITION SAVED:",
-                {
-                    "user_id": user_id,
-                    "current_question": next_question
-                }
+        
+        # =========================================================
+        # 2. FETCH THE LATEST AUTHORITATIVE ANSWER PER QUESTION
+        # =========================================================
+        all_answers_res = (
+            supabase
+            .table("answers")
+            .select("question_id, answer, updated_at")
+            .eq("user_id", user_id)
+            .order(
+                "updated_at",
+                desc=True,
+                nullsfirst=False
             )
-
-        except Exception as progress_exc:
-            print(
-                "ASSESSMENT POSITION SAVE WARNING:",
-                {
-                    "user_id": user_id,
-                    "current_question": next_question,
-                    "error_type": type(progress_exc).__name__,
-                    "error": str(progress_exc)
-                }
-            )
-
-        # 2. Fetch all latest answers for this user
-        all_answers_res = supabase.table("answers") \
-            .select("question_id, answer") \
-            .eq("user_id", user_id) \
             .execute()
+        )
 
-        all_answers = {
-            str(row["question_id"]): row["answer"]
-            for row in (all_answers_res.data or [])
-        }
+        all_answers = {}
+
+        for row in (all_answers_res.data or []):
+
+            raw_question_id = str(
+                row.get("question_id") or ""
+            ).strip()
+
+            clean_question_id = (
+                raw_question_id
+                .replace("q", "")
+                .replace("Q", "")
+                .strip()
+            )
+
+            if not clean_question_id.isdigit():
+                continue
+
+            if clean_question_id in all_answers:
+                continue
+
+            all_answers[clean_question_id] = row.get(
+                "answer"
+            )
+
+
+        print(
+            "LATEST AUTHORITATIVE ANSWERS:",
+            all_answers
+        )
 
         print(
             "PULSE ANSWERS BEFORE ANALYSIS:",
@@ -368,17 +361,25 @@ def save_progress(
 @app.get("/answers")
 def get_answers(user_id: str = Depends(get_current_user)):
     try:
-        res = supabase.table("answers") \
-            .select("question_id, answer") \
-            .eq("user_id", user_id) \
-            .order("question_id") \
+        res = (
+            supabase
+            .table("answers")
+            .select("question_id, answer, updated_at")
+            .eq("user_id", user_id)
+            .order(
+                "updated_at",
+                desc=True,
+                nullsfirst=False
+            )
             .execute()
+        )
 
         rows = res.data or []
 
         answers = {}
 
         for row in rows:
+
             raw_question_id = str(
                 row.get("question_id") or ""
             ).strip()
@@ -393,7 +394,12 @@ def get_answers(user_id: str = Depends(get_current_user)):
             if not clean_question_id.isdigit():
                 continue
 
-            answers[clean_question_id] = row["answer"]
+            if clean_question_id in answers:
+                continue
+
+            answers[clean_question_id] = row.get(
+                "answer"
+            )
 
         progress_res = (
             supabase

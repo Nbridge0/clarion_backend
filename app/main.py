@@ -379,10 +379,26 @@ def submit_answers(
             if not clean_question_id.isdigit():
                 continue
 
+            numeric_question_id = int(
+                clean_question_id
+            )
+
+            if (
+                numeric_question_id < 1
+                or numeric_question_id > 48
+            ):
+                continue
+
+            clean_question_id = str(
+                numeric_question_id
+            )
+
             if clean_question_id in all_answers:
                 continue
 
-            all_answers[clean_question_id] = row.get(
+            all_answers[
+                clean_question_id
+            ] = row.get(
                 "answer"
             )
 
@@ -572,10 +588,26 @@ def get_answers(user_id: str = Depends(get_current_user)):
             if not clean_question_id.isdigit():
                 continue
 
+            numeric_question_id = int(
+                clean_question_id
+            )
+
+            if (
+                numeric_question_id < 1
+                or numeric_question_id > 48
+            ):
+                continue
+
+            clean_question_id = str(
+                numeric_question_id
+            )
+
             if clean_question_id in answers:
                 continue
 
-            answers[clean_question_id] = row.get(
+            answers[
+                clean_question_id
+            ] = row.get(
                 "answer"
             )
 
@@ -617,9 +649,15 @@ def get_answers(user_id: str = Depends(get_current_user)):
                 )
 
                 if clean_question_id.isdigit():
-                    answered_question_ids.add(
-                        int(clean_question_id)
+
+                    question_id = int(
+                        clean_question_id
                     )
+
+                    if 1 <= question_id <= 48:
+                        answered_question_ids.add(
+                            question_id
+                        )
 
             completed = len(answered_question_ids) >= 48
 

@@ -154,7 +154,7 @@ SILO_EVIDENCE_QUESTION_IDS = {
 
     "risk": {
         13, 18, 20, 27,
-        28, 29, 30, 38,
+        28, 29, 30, 38, 40,
         43, 44, 45, 46, 47, 48
     }
 }
@@ -163,7 +163,6 @@ SILO_EVIDENCE_QUESTION_IDS = {
 # =========================================================
 # SILO UPDATE DEPENDENCIES
 # =========================================================
-# Which silos need to be regenerated when a question changes.
 
 QUESTION_UPDATE_SILO_IDS = {
     "strategy": {
@@ -209,7 +208,7 @@ QUESTION_UPDATE_SILO_IDS = {
         16, 18, 20,
         21, 27,
         28, 29, 30,
-        38, 39,
+        38, 39, 40,
         43, 44, 45, 46, 47, 48
     }
 }
@@ -347,18 +346,983 @@ def build_answer_evidence(
 
     return evidence
 
+# =========================================================
+# OFFICIAL ONTOLOGY RULE ENGINE
+# =========================================================
 
+def answer_text(
+    answers: Dict[str, Any],
+    question_id: int
+) -> str:
+    value = get_answer(
+        answers,
+        question_id
+    )
+
+    return str(
+        value or ""
+    ).strip()
+
+
+def answer_lower(
+    answers: Dict[str, Any],
+    question_id: int
+) -> str:
+    return answer_text(
+        answers,
+        question_id
+    ).lower()
+
+
+def make_rule_result(
+    *,
+    rule_id: str,
+    silo: str,
+    title: str,
+    analysis: str,
+    evidence_question_ids: List[int],
+    recommendations: List[str],
+    classification: str | None = None,
+    kind: str = "rule",
+    confidence: str = "high"
+) -> Dict[str, Any]:
+
+    return {
+        "rule_id": rule_id,
+        "silo": silo,
+        "title": title,
+        "analysis": analysis,
+        "evidence_question_ids": evidence_question_ids,
+        "recommendations": recommendations,
+        "classification": classification,
+        "kind": kind,
+        "confidence": confidence
+    }
+
+
+def evaluate_official_ontology_rules(
+    answers: Dict[str, Any]
+) -> Dict[str, List[Dict[str, Any]]]:
+    """
+    Deterministically apply official PULSE ontology rules.
+
+    IMPORTANT:
+    Current GLOBAL question IDs are used here.
+    The old/local question numbers in the rules document
+    are mapped semantically to the current 1-48 assessment.
+    """
+
+    results = {
+        silo_name: []
+        for silo_name in SILO_EVIDENCE_QUESTION_IDS.keys()
+    }
+
+
+    # =====================================================
+    # STRATEGY — RULE 1.1 STRATEGIC CLARITY
+    # Current Q10 = employee goal understanding
+    # Current Q11 = written strategy
+    # =====================================================
+
+    goal_understanding = answer_lower(
+        answers,
+        10
+    )
+
+    written_strategy = answer_lower(
+        answers,
+        11
+    )
+
+    if (
+        written_strategy == "yes"
+        and goal_understanding in {
+            "yes",
+            "some"
+        }
+    ):
+        results["strategy"].append(
+            make_rule_result(
+                rule_id="1.1",
+                silo="strategy",
+                title="Strategic clarity is high",
+                analysis=(
+                    "A written strategy or growth plan exists and "
+                    "employees report at least some understanding of "
+                    "the company's goals and direction."
+                ),
+                evidence_question_ids=[
+                    10,
+                    11
+                ],
+                recommendations=[
+                    "Continue cascading the written strategy into clear team and departmental objectives."
+                ],
+                classification="HIGH"
+            )
+        )
+
+    elif (
+        written_strategy == "no"
+        and goal_understanding == "no"
+    ):
+        results["strategy"].append(
+            make_rule_result(
+                rule_id="1.1",
+                silo="strategy",
+                title="Strategic clarity is critically low",
+                analysis=(
+                    "There is no written strategy and employees do "
+                    "not understand the company's direction."
+                ),
+                evidence_question_ids=[
+                    10,
+                    11
+                ],
+                recommendations=[
+                    "Create a written strategy and establish a structured strategy communication process."
+                ],
+                classification="CRITICALLY LOW"
+            )
+        )
+
+    elif written_strategy or goal_understanding:
+        results["strategy"].append(
+            make_rule_result(
+                rule_id="1.1",
+                silo="strategy",
+                title="Strategic clarity is medium",
+                analysis=(
+                    "Strategy documentation and employee understanding "
+                    "are only partially aligned."
+                ),
+                evidence_question_ids=[
+                    10,
+                    11
+                ],
+                recommendations=[
+                    "Strengthen the connection between the written strategy and employee understanding."
+                ],
+                classification="MEDIUM"
+            )
+        )
+
+
+    # =====================================================
+    # HR — TURNOVER SEVERITY
+    # Official HR Q5 -> Current Q18
+    # =====================================================
+
+    turnover = answer_lower(
+        answers,
+        18
+    )
+
+    turnover_classification = None
+
+    if "under 25" in turnover or "<25" in turnover:
+        turnover_classification = "HEALTHY"
+
+    elif "25-50" in turnover:
+        turnover_classification = "CONCERNING"
+
+    elif "50-75" in turnover:
+        turnover_classification = "CRITICAL"
+
+    elif (
+        "75-100" in turnover
+        or ">75" in turnover
+        or "over 75" in turnover
+    ):
+        turnover_classification = "CRISIS"
+
+    if turnover_classification:
+        results["people"].append(
+            make_rule_result(
+                rule_id="HR-TURNOVER-SEVERITY",
+                silo="people",
+                title=(
+                    f"Employee turnover is classified as "
+                    f"{turnover_classification.lower()}"
+                ),
+                analysis=(
+                    f"The reported employee turnover range is "
+                    f"{answer_text(answers, 18)}. Under the official "
+                    f"PULSE turnover thresholds this is classified "
+                    f"as {turnover_classification}."
+                ),
+                evidence_question_ids=[
+                    18
+                ],
+                recommendations=[
+                    "Investigate the causes of turnover and implement targeted retention measures."
+                ],
+                classification=turnover_classification
+            )
+        )
+
+
+    # =====================================================
+    # HR — RULE 2.7 TURNOVER CRISIS
+    # >=50% turnover triggers crisis
+    # =====================================================
+
+    turnover_at_least_50 = (
+        "50-75" in turnover
+        or "75-100" in turnover
+        or ">75" in turnover
+        or "over 75" in turnover
+    )
+
+    if turnover_at_least_50:
+        results["people"].append(
+            make_rule_result(
+                rule_id="2.7",
+                silo="people",
+                title="Turnover crisis detected",
+                analysis=(
+                    "Employee turnover is at least 50%, which triggers "
+                    "the official PULSE turnover crisis rule."
+                ),
+                evidence_question_ids=[
+                    18
+                ],
+                recommendations=[
+                    "Prioritise retention before attempting major organisational scaling."
+                ],
+                classification="CRISIS"
+            )
+        )
+
+
+    # =====================================================
+    # HR — KNOWLEDGE CONCENTRATION
+    # Official HR Q7 -> Current Q20
+    # =====================================================
+
+    concentration = answer_lower(
+        answers,
+        20
+    )
+
+    concentration_classification = None
+
+    if (
+        "<10" in concentration
+        or "under 10" in concentration
+    ):
+        concentration_classification = "LOW"
+
+    elif "10-25" in concentration:
+        concentration_classification = "MEDIUM"
+
+    elif "25-50" in concentration:
+        concentration_classification = "HIGH"
+
+    elif (
+        ">50" in concentration
+        or "50-75" in concentration
+        or "75-100" in concentration
+        or "over 50" in concentration
+    ):
+        concentration_classification = "CRITICAL"
+
+    if concentration_classification:
+        results["people"].append(
+            make_rule_result(
+                rule_id="HR-KNOWLEDGE-CONCENTRATION",
+                silo="people",
+                title=(
+                    "Knowledge concentration risk is "
+                    f"{concentration_classification.lower()}"
+                ),
+                analysis=(
+                    f"{answer_text(answers, 20)} of critical client "
+                    f"relationships or technical expertise is "
+                    f"concentrated in one individual."
+                ),
+                evidence_question_ids=[
+                    20
+                ],
+                recommendations=[
+                    "Document critical knowledge and expand cross-training and succession coverage."
+                ],
+                classification=concentration_classification
+            )
+        )
+
+
+    # =====================================================
+    # HR/RISK — RULE 2.8 + CROSS-RULE CS.5
+    # concentration >=25 AND turnover >=25
+    # =====================================================
+
+    concentration_at_least_25 = (
+        "25-50" in concentration
+        or "50-75" in concentration
+        or "75-100" in concentration
+        or ">50" in concentration
+        or "over 50" in concentration
+    )
+
+    turnover_at_least_25 = (
+        "25-50" in turnover
+        or turnover_at_least_50
+    )
+
+    if (
+        concentration_at_least_25
+        and turnover_at_least_25
+    ):
+        results["people"].append(
+            make_rule_result(
+                rule_id="2.8",
+                silo="people",
+                title="Succession risk is critical",
+                analysis=(
+                    "Knowledge concentration is at least 25% and "
+                    "employee turnover is at least 25%, triggering "
+                    "the official succession-risk rule."
+                ),
+                evidence_question_ids=[
+                    18,
+                    20
+                ],
+                recommendations=[
+                    "Document critical knowledge.",
+                    "Cross-train backup personnel.",
+                    "Create a retention plan for key individuals."
+                ],
+                classification="CRITICAL"
+            )
+        )
+
+        results["risk"].append(
+            make_rule_result(
+                rule_id="CS.5",
+                silo="risk",
+                title="Knowledge loss from turnover is a high risk",
+                analysis=(
+                    "The combination of elevated employee turnover "
+                    "and concentrated knowledge triggers the official "
+                    "HR-Knowledge Concentration-Risk Cascade."
+                ),
+                evidence_question_ids=[
+                    18,
+                    20
+                ],
+                recommendations=[
+                    "Run a 90-day knowledge capture sprint covering tutorials, documented decisions and shadowing."
+                ],
+                classification="HIGH"
+            )
+        )
+
+
+    # =====================================================
+    # OPERATIONS — VENDOR RISK
+    # Current Q27
+    # =====================================================
+
+    vendor_backup = answer_lower(
+        answers,
+        27
+    )
+
+    if "for some" in vendor_backup:
+        results["operations"].append(
+            make_rule_result(
+                rule_id="3.6",
+                silo="operations",
+                title="Vendor concentration risk is medium",
+                analysis=(
+                    "Pre-vetted Tier-2 alternatives exist for only "
+                    "some suppliers or services."
+                ),
+                evidence_question_ids=[
+                    27
+                ],
+                recommendations=[
+                    "Audit which critical vendors or services still lack pre-vetted alternatives."
+                ],
+                classification="MEDIUM"
+            )
+        )
+
+    elif vendor_backup == "no":
+        results["operations"].append(
+            make_rule_result(
+                rule_id="3.6",
+                silo="operations",
+                title="Vendor concentration risk is high",
+                analysis=(
+                    "No pre-vetted Tier-2 alternatives are available."
+                ),
+                evidence_question_ids=[
+                    27
+                ],
+                recommendations=[
+                    "Develop Tier-2 vendor relationships immediately."
+                ],
+                classification="HIGH"
+            )
+        )
+
+
+    # =====================================================
+    # FINANCIAL — RULE 4.1 REVENUE CONCENTRATION
+    # Current Q28
+    # =====================================================
+
+    concentration_revenue = answer_lower(
+        answers,
+        28
+    )
+
+    if (
+        "<5" in concentration_revenue
+        or "under 5" in concentration_revenue
+    ):
+        results["financial"].append(
+            make_rule_result(
+                rule_id="4.1",
+                silo="financial",
+                title="Customer revenue concentration risk is low",
+                analysis=(
+                    "The largest customer represents less than 5% "
+                    "of revenue, placing customer concentration in "
+                    "the low-risk range."
+                ),
+                evidence_question_ids=[
+                    28
+                ],
+                recommendations=[
+                    "Maintain a diversified customer base."
+                ],
+                classification="LOW"
+            )
+        )
+
+
+    # =====================================================
+    # FINANCIAL — RULE 4.3 BUSINESS MODEL
+    # Current Q30
+    # =====================================================
+
+    recurring = answer_lower(
+        answers,
+        30
+    )
+
+    if (
+        "<25" in recurring
+        or "under 25" in recurring
+    ):
+        results["financial"].append(
+            make_rule_result(
+                rule_id="4.3",
+                silo="financial",
+                title="Business model is project-based with low revenue predictability",
+                analysis=(
+                    "Less than 25% of revenue is recurring. Under "
+                    "the official PULSE rule this is classified as "
+                    "a project-based model with LOW revenue predictability."
+                ),
+                evidence_question_ids=[
+                    30
+                ],
+                recommendations=[
+                    "Develop recurring revenue streams to improve cash-flow predictability."
+                ],
+                classification="LOW"
+            )
+        )
+
+
+    # =====================================================
+    # MARKETING — RULE 5.1 SEGMENTATION
+    # Current Q33
+    # =====================================================
+
+    target_segments = [
+        item.strip()
+        for item in answer_text(
+            answers,
+            33
+        ).split(",")
+        if item.strip()
+    ]
+
+    segment_count = len(
+        target_segments
+    )
+
+    if 1 <= segment_count <= 3:
+        results["marketing"].append(
+            make_rule_result(
+                rule_id="5.1",
+                silo="marketing",
+                title="Market segmentation is focused",
+                analysis=(
+                    f"The business selected {segment_count} primary "
+                    "target customer segments. Under the official "
+                    "STP rule this is classified as FOCUSED."
+                ),
+                evidence_question_ids=[
+                    33
+                ],
+                recommendations=[
+                    "Keep marketing messages tailored to the selected priority customer segments."
+                ],
+                classification="FOCUSED"
+            )
+        )
+
+    elif 4 <= segment_count <= 6:
+        results["marketing"].append(
+            make_rule_result(
+                rule_id="5.1",
+                silo="marketing",
+                title="Market segmentation is moderate",
+                analysis=(
+                    f"The business selected {segment_count} target "
+                    "segments, which the official rule classifies "
+                    "as MODERATE."
+                ),
+                evidence_question_ids=[
+                    33
+                ],
+                recommendations=[
+                    "Review whether marketing resources are spread too widely."
+                ],
+                classification="MODERATE"
+            )
+        )
+
+    elif segment_count >= 7:
+        results["marketing"].append(
+            make_rule_result(
+                rule_id="5.1",
+                silo="marketing",
+                title="Market segmentation is fragmented",
+                analysis=(
+                    f"The business selected {segment_count} target "
+                    "segments, which the official rule classifies "
+                    "as FRAGMENTED."
+                ),
+                evidence_question_ids=[
+                    33
+                ],
+                recommendations=[
+                    "Narrow target segments to improve marketing efficiency."
+                ],
+                classification="FRAGMENTED"
+            )
+        )
+
+
+    # =====================================================
+    # MARKETING — LEAD SOURCE BALANCE
+    # Current Q31
+    # =====================================================
+
+    inbound = answer_lower(
+        answers,
+        31
+    )
+
+    if (
+        "0-20" in inbound
+        or "20-40" in inbound
+    ):
+        results["marketing"].append(
+            make_rule_result(
+                rule_id="5-LEAD-SOURCE-BALANCE",
+                silo="marketing",
+                title="Lead generation is outbound dependent",
+                analysis=(
+                    "The inbound lead percentage falls below the "
+                    "40% midpoint threshold used by the official "
+                    "PULSE lead-source rule."
+                ),
+                evidence_question_ids=[
+                    31
+                ],
+                recommendations=[
+                    "Strengthen inbound marketing while maintaining effective outbound acquisition."
+                ],
+                classification="OUTBOUND DEPENDENT"
+            )
+        )
+
+
+    # =====================================================
+    # SERVICE — RETENTION HEALTH
+    # Current Q38
+    # =====================================================
+
+    repeat_customers = answer_lower(
+        answers,
+        38
+    )
+
+    retention_classification = None
+
+    if "25-50" in repeat_customers:
+        retention_classification = "FAIR"
+
+    elif "50-75" in repeat_customers:
+        retention_classification = "GOOD"
+
+    elif (
+        ">75" in repeat_customers
+        or "75-100" in repeat_customers
+        or "over 75" in repeat_customers
+    ):
+        retention_classification = "EXCELLENT"
+
+    elif (
+        "<25" in repeat_customers
+        or "under 25" in repeat_customers
+    ):
+        retention_classification = "POOR"
+
+    if retention_classification:
+        results["service"].append(
+            make_rule_result(
+                rule_id="6-RETENTION-HEALTH",
+                silo="service",
+                title=(
+                    "Customer retention is "
+                    f"{retention_classification.lower()}"
+                ),
+                analysis=(
+                    f"The reported repeat-customer range is "
+                    f"{answer_text(answers, 38)}, which the official "
+                    f"PULSE retention thresholds classify as "
+                    f"{retention_classification}."
+                ),
+                evidence_question_ids=[
+                    38
+                ],
+                recommendations=[
+                    "Investigate the drivers of repeat business and customer churn."
+                ],
+                classification=retention_classification
+            )
+        )
+
+
+    # =====================================================
+    # SERVICE/RISK — CROSS-RULE CS.23
+    # referral <=2 AND repeat customers 25-50%
+    # =====================================================
+
+    referral = answer_text(
+        answers,
+        40
+    )
+
+    try:
+        referral_score = int(
+            float(
+                referral
+            )
+        )
+    except Exception:
+        referral_score = None
+
+    if (
+        referral_score is not None
+        and referral_score <= 2
+        and "25-50" in repeat_customers
+    ):
+        results["service"].append(
+            make_rule_result(
+                rule_id="CS.23",
+                silo="service",
+                title="Customers return but referral advocacy is weak",
+                analysis=(
+                    "Repeat customers are in the 25-50% range while "
+                    "referral frequency is 2 or lower. The official "
+                    "cross-rule identifies a gap between retention "
+                    "and advocacy."
+                ),
+                evidence_question_ids=[
+                    38,
+                    40
+                ],
+                recommendations=[
+                    "Investigate why repeat customers are not referring the business through structured feedback and exit interviews."
+                ],
+                classification="REFERRAL GAP"
+            )
+        )
+
+        results["risk"].append(
+            make_rule_result(
+                rule_id="CS.23",
+                silo="risk",
+                title="Low referral advocacy creates competitive displacement risk",
+                analysis=(
+                    "The combination of moderate repeat business and "
+                    "low referral frequency triggers the official "
+                    "service-to-risk cross-rule."
+                ),
+                evidence_question_ids=[
+                    38,
+                    40
+                ],
+                recommendations=[
+                    "Identify the causes of low advocacy and strengthen the customer experience factors that drive referrals."
+                ],
+                classification="RISK"
+            )
+        )
+
+
+    # =====================================================
+    # RISK — RULE 7.1 CONTRACTOR INSURANCE
+    # Current Q43 + Q46
+    # =====================================================
+
+    contractor_insurance = answer_lower(
+        answers,
+        43
+    )
+
+    pi_cover = answer_lower(
+        answers,
+        46
+    )
+
+    if "sometimes" in contractor_insurance:
+        results["risk"].append(
+            make_rule_result(
+                rule_id="7.1-CONTRACTOR-INSURANCE",
+                silo="risk",
+                title="Contractor insurance verification is a weak prevention barrier",
+                analysis=(
+                    "Subcontractor proof of insurance is required "
+                    "only sometimes. The official Bowtie rule "
+                    "classifies this as a WEAK prevention barrier."
+                ),
+                evidence_question_ids=[
+                    43
+                ],
+                recommendations=[
+                    "Require consistent proof of insurance from subcontractors."
+                ],
+                classification="WEAK"
+            )
+        )
+
+    if "partial" in pi_cover:
+        results["risk"].append(
+            make_rule_result(
+                rule_id="7.1-PI-COVER",
+                silo="risk",
+                title="Professional Indemnity coverage is a moderate recovery barrier",
+                analysis=(
+                    "Professional Indemnity insurance only partially "
+                    "covers the largest contract. The official rule "
+                    "classifies this recovery barrier as MODERATE."
+                ),
+                evidence_question_ids=[
+                    46
+                ],
+                recommendations=[
+                    "Review Professional Indemnity limits against the value of the largest contract."
+                ],
+                classification="MODERATE"
+            )
+        )
+
+
+    # =====================================================
+    # RISK — RULE 7.2 SANCTIONS
+    # Current Q44
+    # =====================================================
+
+    sanctions = answer_lower(
+        answers,
+        44
+    )
+
+    if "no formal process" in sanctions:
+        results["risk"].append(
+            make_rule_result(
+                rule_id="7.2",
+                silo="risk",
+                title="Sanctions screening control is absent and exposure is critical",
+                analysis=(
+                    "Sanctions screening has no formal process. "
+                    "Under the official Bowtie rule this is an "
+                    "ABSENT prevention barrier and triggers a "
+                    "CRITICAL sanctions compliance gap."
+                ),
+                evidence_question_ids=[
+                    44
+                ],
+                recommendations=[
+                    "Implement a formal sanctions-screening process immediately."
+                ],
+                classification="CRITICAL"
+            )
+        )
+
+
+    # =====================================================
+    # RISK — UBO CONTROL
+    # Current Q45
+    # =====================================================
+
+    ubo = answer_lower(
+        answers,
+        45
+    )
+
+    if "only if required by bank" in ubo:
+        results["risk"].append(
+            make_rule_result(
+                rule_id="7.2-UBO",
+                silo="risk",
+                title="UBO verification is a weak prevention barrier",
+                analysis=(
+                    "Ultimate beneficial ownership is verified only "
+                    "when required by a bank. The official Bowtie "
+                    "definition classifies this as a WEAK barrier."
+                ),
+                evidence_question_ids=[
+                    45
+                ],
+                recommendations=[
+                    "Introduce consistent UBO verification independent of bank requirements."
+                ],
+                classification="WEAK"
+            )
+        )
+
+
+    aml_minimal = (
+        "only if required by bank" in ubo
+        or ubo == "no"
+        or "onboarding only" in sanctions
+        or "no formal process" in sanctions
+    )
+
+    if aml_minimal:
+        aml_evidence_ids = []
+
+        if (
+            "only if required by bank" in ubo
+            or ubo == "no"
+        ):
+            aml_evidence_ids.append(
+                45
+            )
+
+        if (
+            "onboarding only" in sanctions
+            or "no formal process" in sanctions
+        ):
+            aml_evidence_ids.append(
+                44
+            )
+
+        results["risk"].append(
+            make_rule_result(
+                rule_id="7.8",
+                silo="risk",
+                title="AML control maturity is minimal and actual AML risk is critical",
+                analysis=(
+                    "The current UBO verification and/or sanctions "
+                    "screening controls meet the official PULSE "
+                    "criteria for MINIMAL AML controls. Under Rule "
+                    "7.8, actual AML risk is therefore classified "
+                    "as CRITICAL."
+                ),
+                evidence_question_ids=aml_evidence_ids,
+                recommendations=[
+                    "Engage a compliance specialist and strengthen AML, UBO and screening controls immediately."
+                ],
+                classification="CRITICAL"
+            )
+        )
+
+
+    # =====================================================
+    # RISK — RUNWAY RESILIENCE
+    # Current Q48
+    # =====================================================
+
+    runway = answer_lower(
+        answers,
+        48
+    )
+
+    runway_classification = None
+
+    if (
+        "12+" in runway
+        or "over 12" in runway
+    ):
+        runway_classification = "STRONG"
+
+    elif "6-12" in runway:
+        runway_classification = "MODERATE"
+
+    elif "3-6" in runway:
+        runway_classification = "WEAK"
+
+    elif (
+        "<3" in runway
+        or "under 3" in runway
+    ):
+        runway_classification = "CRITICAL"
+
+    if runway_classification:
+        results["risk"].append(
+            make_rule_result(
+                rule_id="7.3",
+                silo="risk",
+                title=(
+                    "Operational resilience is "
+                    f"{runway_classification.lower()}"
+                ),
+                analysis=(
+                    f"The reported operational runway is "
+                    f"{answer_text(answers, 48)}. The official "
+                    f"resilience thresholds classify this as "
+                    f"{runway_classification}."
+                ),
+                evidence_question_ids=[
+                    48
+                ],
+                recommendations=[
+                    "Manage cash runway according to the identified resilience level and strengthen contingency funding options."
+                ],
+                classification=runway_classification
+            )
+        )
+
+    return results
+    
 # =========================================================
 # INTELLIGENT SILO FINDINGS
 # =========================================================
+
 def build_intelligent_silo_findings(
     *,
     silo_name: str,
-    answers: Dict[str, Any]
+    answers: Dict[str, Any],
+    official_rule_results: Dict[str, List[Dict[str, Any]]]
 ) -> Dict[str, Any]:
     """
-    Convert evidence-backed assessment results into
-    meaningful user-facing findings.
+    OpenAI may EXPLAIN official deterministic rule results.
+
+    It may not invent, soften, strengthen or replace
+    official classifications.
     """
 
     semantic_answers = build_answer_evidence(
@@ -366,229 +1330,128 @@ def build_intelligent_silo_findings(
         silo_name
     )
 
+    silo_rules = (
+        official_rule_results.get(
+            silo_name,
+            []
+        )
+    )
+
     evidence = {
         "silo": silo_name,
-        "direct_assessment_evidence": semantic_answers
+        "direct_assessment_evidence": semantic_answers,
+        "official_rule_results": silo_rules
     }
 
-
     instructions = """
-You are the analytical intelligence layer for PULSE.
+You are the user-facing explanation layer for PULSE.
 
-You are analysing ONE business silo using ONLY direct answers
-provided by the respondent.
+The OFFICIAL ontology rules have ALREADY been evaluated
+deterministically by the backend.
 
-The supplied evidence contains:
-
-- question_id
-- the meaning of the question
-- the respondent's actual answer
-
-Your job is to identify useful business findings while remaining
-strictly faithful to those answers.
+You are NOT the rule engine.
 
 =========================================================
-ABSOLUTE EVIDENCE RULES
+ABSOLUTE RULE PRIORITY
 =========================================================
 
-1. Use ONLY direct_assessment_evidence.
+1. official_rule_results are authoritative.
 
-2. Every factual statement in a finding must be directly supported
-   by one or more supplied assessment answers.
+2. NEVER change an official classification.
 
-3. Never invent or calculate a metric that was not directly asked
-   in the assessment.
+Examples:
 
-4. Never manufacture:
-   - percentages
-   - averages
-   - financial ratios
-   - scores
-   - health scores
-   - maturity scores
-   - risk scores
-   - benchmark scores
-   - indexes
-   - probabilities
-   - financial values
-   - customer values
-   - employee values
+If the official rule says:
+classification = "WEAK"
 
-5. Never create or infer formal metrics such as:
-   - NPS
-   - SERVQUAL
-   - CLV
-   - CAC
-   - CLV:CAC
-   - ROE
-   - net profit margin
-   - DSO
-   - cash conversion cycle
-   - asset turnover
-   - digital intensity scores
-   - transformation management scores
-   - team health scores
-   - positioning scores
-   - segmentation scores
-   unless that exact metric was explicitly measured in the
-   assessment evidence.
+you MUST NOT call it:
+- moderate
+- adequate
+- acceptable
+- reasonably healthy
+
+If the official rule says:
+classification = "CRITICAL"
+
+you MUST NOT soften it to:
+- notable
+- potential
+- moderate
+- incomplete
+
+3. Never invent a new formal classification.
+
+4. Never calculate a new metric or score.
+
+5. Never override an official rule result with your own judgement.
+
+6. If an official rule result conflicts with a casual interpretation
+   of a direct answer, the official rule result wins.
 
 =========================================================
-INTERPRETATION RULES
+DIRECT EVIDENCE
 =========================================================
 
-6. You MAY make cautious qualitative interpretations where the
-   relationship is directly supported by the answers.
+7. Direct assessment evidence may be used to explain context.
 
-For example:
+8. Every factual statement must be supported by either:
+   - official_rule_results; or
+   - direct_assessment_evidence.
 
-If the respondent says:
-- more than 50% of critical expertise is held by one person
+9. Preserve exact ranges.
 
-you may say:
-- there is substantial key-person concentration.
-
-You may NOT invent a numerical risk score.
-
-7. Do not convert an answer range into an exact value.
-
-For example:
-
-"25-50%" must remain "25-50%".
-
-Do NOT convert it into:
+Do not convert:
+25-50%
+into:
 37.5%.
 
-8. Do not turn absence of a selected option into negative evidence.
-
-For example:
-
-If "speed" is not selected as something customers praise,
-you may NOT conclude that response speed is poor.
-
-9. Do not interpret:
-
-"No suspected financial waste"
-
-as proof that:
-- cost management is healthy;
-- financial controls are strong;
-- no waste exists.
-
-You may only state that:
-- the respondent does not currently report suspected financial waste.
-
-10. Do not label a result:
-- healthy
-- unhealthy
-- strong
-- weak
-- excellent
-- poor
-- critical
-- high risk
-- low risk
-
-unless that description follows plainly from the actual answer itself
-or from an explicit assessment category supplied in the evidence.
-
-Prefer factual wording such as:
-
-- "less than 25% turnover was reported"
-- "25-50% recurring revenue was reported"
-- "some employees understand company goals"
-- "SOPs exist for some processes"
-- "sanctions screening has no formal process"
-
-rather than inventing benchmark labels.
-
-11. Do not claim causation unless the answers directly establish it.
-
-Use cautious wording such as:
-
-- may constrain
-- creates exposure to
-- may contribute to
-- indicates a potential gap
-- suggests an area to investigate
-
-where causation has not been measured.
-
-12. Do not claim that one answer caused another answer.
-
-13. Do not exaggerate.
-
-14. Do not minimise genuine risks shown directly by the answers.
+10. Do not invent missing facts.
 
 =========================================================
-MULTI-ANSWER ANALYSIS
+FINDING CONSTRUCTION
 =========================================================
 
-15. You should connect multiple answers when their relationship is
-    logically relevant.
+11. Every official rule result MUST appear in the final findings.
 
-Example:
+12. Preserve:
+   - rule_id
+   - classification
+   - evidence_question_ids
+   - confidence
+   - kind
 
-A written strategy together with only partial employee understanding
-can support a finding that internal strategic alignment may be incomplete.
+13. You may combine closely related official rule results into one
+    finding ONLY if no classification is lost.
 
-16. When connecting answers, explicitly state which evidence supports
-    the conclusion.
+14. You may add additional qualitative findings from direct evidence,
+    but they must not contradict or weaken official rule results.
 
-17. Do not combine unrelated answers merely to create more findings.
+15. Recommendations must be consistent with the official rule.
 
-=========================================================
-FINDINGS
-=========================================================
+16. Use professional British English.
 
-18. Do not force a fixed number of findings.
-
-19. Findings should represent meaningful conclusions, not repetitions
-    of every answer.
-
-20. Do not create a positive finding simply because an answer does
-    not reveal a problem.
-
-21. Do not create a negative finding simply because a positive option
-    was not selected.
-
-22. Recommendations must directly address the evidence described in
-    the finding.
-
-23. Recommendations may suggest reasonable next actions, but must not
-    assume facts about the company that were not supplied.
-
-24. Use professional British English.
-
-=========================================================
-EVIDENCE TRACEABILITY
-=========================================================
-
-25. Every finding MUST contain evidence_question_ids.
-
-26. evidence_question_ids may contain ONLY question IDs actually
-    supplied in direct_assessment_evidence.
-
-27. Include every question materially used to reach the finding.
-
-Return ONLY valid JSON in exactly this structure:
+Return ONLY valid JSON:
 
 {
   "findings": [
     {
-      "title": "short factual business conclusion",
-      "analysis": "clear explanation based only on supplied answers",
-      "evidence_question_ids": [1, 2],
+      "title": "finding title",
+      "analysis": "explanation",
+      "rule_ids": ["2.8", "CS.5"],
+      "classification": "CRITICAL",
+      "kind": "rule",
+      "confidence": "high",
+      "evidence_question_ids": [18, 20],
       "recommendations": [
-        "specific evidence-grounded action"
+        "specific action"
       ]
     }
   ]
 }
 """.strip()
 
-
     try:
+
         response = openai_client.responses.create(
             model=OPENAI_ANALYSIS_MODEL,
             instructions=instructions,
@@ -604,21 +1467,15 @@ Return ONLY valid JSON in exactly this structure:
             or ""
         ).strip()
 
-        if raw.startswith(
-            "```"
-        ):
+        if raw.startswith("```"):
             raw = (
                 raw
                 .strip("`")
                 .strip()
             )
 
-            if raw.lower().startswith(
-                "json"
-            ):
-                raw = raw[
-                    4:
-                ].strip()
+            if raw.lower().startswith("json"):
+                raw = raw[4:].strip()
 
         parsed = json.loads(
             raw
@@ -634,6 +1491,31 @@ Return ONLY valid JSON in exactly this structure:
         ):
             findings = []
 
+        valid_question_ids = {
+            int(item["question_id"])
+            for item in semantic_answers
+        }
+
+        official_rule_ids = {
+            str(rule.get("rule_id"))
+            for rule in silo_rules
+        }
+
+        official_rules_by_id = {
+            str(
+                rule.get(
+                    "rule_id"
+                )
+            ): rule
+            for rule in silo_rules
+            if str(
+                rule.get(
+                    "rule_id"
+                )
+                or ""
+            ).strip()
+        }
+
         clean_findings = []
 
         for finding in findings:
@@ -645,90 +1527,231 @@ Return ONLY valid JSON in exactly this structure:
                 continue
 
             title = str(
-                finding.get(
-                    "title"
-                )
+                finding.get("title")
                 or ""
             ).strip()
 
             analysis = str(
-                finding.get(
-                    "analysis"
-                )
+                finding.get("analysis")
                 or ""
             ).strip()
 
-            evidence_question_ids = finding.get(
-                "evidence_question_ids"
-            ) or []
+            if not title or not analysis:
+                continue
 
-            if not isinstance(
-                evidence_question_ids,
-                list
+            evidence_ids = []
+
+            for question_id in (
+                finding.get(
+                    "evidence_question_ids"
+                )
+                or []
             ):
-                evidence_question_ids = []
-
-            valid_question_ids = {
-                int(item["question_id"])
-                for item in semantic_answers
-                if str(
-                    item.get("question_id")
-                ).isdigit()
-            }
-
-            clean_evidence_question_ids = []
-
-            for question_id in evidence_question_ids:
 
                 try:
                     question_id = int(
                         question_id
-                   )
+                    )
                 except Exception:
                     continue
 
-                if question_id not in valid_question_ids:
-                    continue
-
-                if question_id not in clean_evidence_question_ids:
-                    clean_evidence_question_ids.append(
+                if (
+                    question_id in valid_question_ids
+                    and question_id not in evidence_ids
+                ):
+                    evidence_ids.append(
                         question_id
                     )
 
-            recommendations = finding.get(
-                "recommendations"
-            ) or []
+            if not evidence_ids:
+                continue
 
-            if not isinstance(
-                recommendations,
-                list
+            rule_ids = []
+
+            for rule_id in (
+                finding.get(
+                    "rule_ids"
+                )
+                or []
             ):
-                recommendations = [
-                    recommendations
+
+                rule_id = str(
+                    rule_id
+                ).strip()
+
+                if (
+                    rule_id in official_rule_ids
+                    and rule_id not in rule_ids
+                ):
+                    rule_ids.append(
+                        rule_id
+                    )
+
+            official_classification = None
+            official_kind = None
+            official_confidence = None
+
+            if rule_ids:
+
+                matched_rules = [
+                    official_rules_by_id[
+                        rule_id
+                    ]
+                    for rule_id in rule_ids
+                    if rule_id in official_rules_by_id
                 ]
+
+                classifications = {
+                    str(
+                        rule.get(
+                            "classification"
+                        )
+                        or ""
+                    ).strip()
+                    for rule in matched_rules
+                    if str(
+                        rule.get(
+                            "classification"
+                        )
+                        or ""
+                    ).strip()
+                }
+
+                # Do not allow OpenAI to merge official rules
+                # with different classifications into one finding.
+                if len(
+                    classifications
+                ) > 1:
+                    continue
+
+                if matched_rules:
+
+                    first_rule = matched_rules[
+                        0
+                    ]
+
+                    official_classification = (
+                        first_rule.get(
+                            "classification"
+                        )
+                    )
+
+                    official_kind = (
+                        first_rule.get(
+                            "kind"
+                        )
+                        or "rule"
+                    )
+
+                    official_confidence = (
+                        first_rule.get(
+                            "confidence"
+                        )
+                        or "high"
+                    )
 
             recommendations = [
                 str(item).strip()
-                for item in recommendations
+                for item in (
+                    finding.get(
+                        "recommendations"
+                    )
+                    or []
+                )
                 if str(
-                    item
-                    or ""
+                    item or ""
                 ).strip()
             ]
-
-            if (
-                not title
-                or not analysis
-                or not clean_evidence_question_ids
-            ):
-                continue
 
             clean_findings.append({
                 "title": title,
                 "analysis": analysis,
-                "evidence_question_ids": clean_evidence_question_ids,
+                "rule_ids": rule_ids,
+
+                "classification": (
+                    official_classification
+                    if rule_ids
+                    else None
+                ),
+
+                "kind": (
+                    official_kind
+                    if rule_ids
+                    else "direct"
+                ),
+
+                "confidence": (
+                    official_confidence
+                    if rule_ids
+                    else "high"
+                ),
+
+                "evidence_question_ids": evidence_ids,
                 "recommendations": recommendations
             })
+
+
+        # =================================================
+        # GUARANTEE EVERY OFFICIAL RULE APPEARS
+        # =================================================
+        #
+        # If OpenAI accidentally omits an official rule,
+        # insert the deterministic rule result directly.
+        # =================================================
+
+        represented_rule_ids = {
+            rule_id
+            for finding in clean_findings
+            for rule_id in finding.get(
+                "rule_ids",
+                []
+            )
+        }
+
+        for rule in silo_rules:
+
+            rule_id = str(
+                rule.get(
+                    "rule_id"
+                )
+                or ""
+            )
+
+            if (
+                not rule_id
+                or rule_id in represented_rule_ids
+            ):
+                continue
+
+            clean_findings.append({
+                "title": rule.get(
+                    "title"
+                ),
+                "analysis": rule.get(
+                    "analysis"
+                ),
+                "rule_ids": [
+                    rule_id
+                ],
+                "classification": rule.get(
+                    "classification"
+                ),
+                "kind": rule.get(
+                    "kind"
+                ),
+                "confidence": rule.get(
+                    "confidence"
+                ),
+                "evidence_question_ids": rule.get(
+                    "evidence_question_ids",
+                    []
+                ),
+                "recommendations": rule.get(
+                    "recommendations",
+                    []
+                )
+            })
+
 
         return {
             "findings": clean_findings
@@ -741,14 +1764,55 @@ Return ONLY valid JSON in exactly this structure:
             "OPENAI SILO ANALYSIS ERROR:",
             {
                 "silo": silo_name,
-                "error_type": (
-                    type(error).__name__
-                ),
-                "error": str(error)
+                "error_type": type(
+                    error
+                ).__name__,
+                "error": str(
+                    error
+                )
             }
         )
 
-        raise
+        # IMPORTANT:
+        # Even if OpenAI fails, official rule results
+        # still survive and are shown.
+        return {
+            "findings": [
+                {
+                    "title": rule.get(
+                        "title"
+                    ),
+                    "analysis": rule.get(
+                        "analysis"
+                    ),
+                    "rule_ids": [
+                        str(
+                            rule.get(
+                                "rule_id"
+                            )
+                        )
+                    ],
+                    "classification": rule.get(
+                        "classification"
+                    ),
+                    "kind": rule.get(
+                        "kind"
+                    ),
+                    "confidence": rule.get(
+                        "confidence"
+                    ),
+                    "evidence_question_ids": rule.get(
+                        "evidence_question_ids",
+                        []
+                    ),
+                    "recommendations": rule.get(
+                        "recommendations",
+                        []
+                    )
+                }
+                for rule in silo_rules
+            ]
+        }
 
 
 # =========================================================
@@ -772,6 +1836,13 @@ def run_full_analysis(
         data = {}
 
 
+    official_rule_results = (
+        evaluate_official_ontology_rules(
+            data
+        )
+    )
+
+
     # =====================================================
     # 1. GENERATE USER-FACING SILO ANALYSIS IN PARALLEL
     # =====================================================
@@ -793,7 +1864,8 @@ def run_full_analysis(
             future = executor.submit(
                 build_intelligent_silo_findings,
                 silo_name=silo_name,
-                answers=data
+                answers=data,
+                official_rule_results=official_rule_results
             )
 
             future_to_silo[
@@ -883,14 +1955,10 @@ def run_full_analysis(
         for silo_name in silo_names
     }
 
-
-    # =====================================================
-    # 2. DO NOT MANUFACTURE AN OVERALL SCORE
-    # =====================================================
-
     result = {
         "overall_score": None,
-        "silos": intelligent_silos
+        "silos": intelligent_silos,
+        "official_rule_results": official_rule_results
     }
 
 
@@ -1047,6 +2115,12 @@ def run_incremental_analysis(
     ):
         data = {}
 
+    official_rule_results = (
+        evaluate_official_ontology_rules(
+            data
+        )
+    )
+
     if not isinstance(
         previous_analysis,
         dict
@@ -1111,6 +2185,7 @@ def run_incremental_analysis(
         return {
             "overall_score": None,
             "silos": merged_silos,
+            "official_rule_results": official_rule_results,
             "updated_silos": []
         }
 
@@ -1133,7 +2208,8 @@ def run_incremental_analysis(
             future = executor.submit(
                 build_intelligent_silo_findings,
                 silo_name=silo_name,
-                answers=data
+                answers=data,
+                official_rule_results=official_rule_results
             )
 
             future_to_silo[
@@ -1194,6 +2270,7 @@ def run_incremental_analysis(
     result = {
         "overall_score": None,
         "silos": merged_silos,
+        "official_rule_results": official_rule_results,
         "updated_silos": affected_silos
     }
 

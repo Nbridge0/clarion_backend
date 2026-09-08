@@ -112,11 +112,6 @@ QUESTION_LABELS = {
     48: "Operational cash runway"
 }
 
-
-# =========================================================
-# SILO-SPECIFIC QUESTION SCOPE
-# =========================================================
-
 # =========================================================
 # SILO EVIDENCE SCOPE
 # =========================================================
@@ -165,53 +160,66 @@ SILO_EVIDENCE_QUESTION_IDS = {
 # =========================================================
 
 QUESTION_UPDATE_SILO_IDS = {
+
     "strategy": {
+        # Direct Strategy evidence
         1, 2, 3, 4, 5, 6, 7,
-        8, 9, 10, 11, 12, 13
+        8, 9, 10, 11, 12, 13,
+
+        # Rule 3.9 — SOP coverage affects Strategy systems
+        21,
+
+        # CS.22 — team capacity can constrain growth strategy
+        14, 18
     },
 
     "people": {
-        4, 5, 6, 10,
-        14, 15, 16, 17, 18, 19, 20
+        # Direct People evidence
+        10,
+        14, 15, 16, 17, 18, 19, 20,
+
+        # Rule 3.9 — SOP coverage caps accountability
+        21
     },
 
     "operations": {
-        3, 4, 5, 6, 8, 9, 10, 11, 13,
-        19,
-        21, 22, 23, 24, 25, 26, 27,
-        29
+        # Direct Operations evidence
+        4, 5, 8, 9, 10, 11,
+        21, 22, 23, 24, 25, 26, 27, 29
     },
 
     "financial": {
-        1, 4, 5, 6, 7, 12,
-        28, 29, 30,
-        38,
-        48
+        # Direct Financial evidence
+        28, 29, 30, 48
     },
 
     "marketing": {
-        1, 2, 3, 7, 12,
-        31, 32, 33, 34, 35, 36, 37,
-        38, 40, 41, 42
+        # Direct Marketing evidence
+        2,
+        31, 32, 33, 34, 35, 36, 37, 38,
+
+        # CS.22 — team-capacity / sales-scalability rules
+        12, 14, 18, 20
     },
 
     "service": {
-        2, 3, 4, 5,
-        16, 18, 19, 20,
-        21,
-        33, 34, 35,
-        38, 39, 40, 41, 42
+        # Direct Service evidence
+        20,
+        38, 39, 40, 41, 42,
+
+        # Rule 3.9 — SOP coverage affects service consistency
+        21
     },
 
     "risk": {
-        4, 5, 6, 7, 13,
-        16, 18, 20,
-        21, 27,
-        28, 29, 30,
-        38, 39, 40,
+        # Direct Risk evidence
+        13, 18, 20, 27,
+        28, 29, 30, 38, 40,
         43, 44, 45, 46, 47, 48
     }
 }
+
+
 # =========================================================
 # INCREMENTAL ANALYSIS HELPERS
 # =========================================================
@@ -770,6 +778,184 @@ def evaluate_official_ontology_rules(
 
 
     # =====================================================
+    # OPERATIONS — RULE 3.8 DIGITAL READINESS REALITY CHECK
+    #
+    # Current mappings:
+    # Q21 = SOP coverage
+    # Q22 = software/systems
+    # Q23 = automation
+    # Q26 = self-assessed digital readiness
+    # =====================================================
+
+    digital_readiness_text = answer_text(
+        answers,
+        26
+    )
+
+    try:
+        digital_readiness_score = float(
+            digital_readiness_text
+        )
+    except Exception:
+        digital_readiness_score = None
+
+
+    software_tools = answer_lower(
+        answers,
+        22
+    )
+
+    automation = answer_lower(
+        answers,
+        23
+    )
+
+    sop_coverage = answer_lower(
+        answers,
+        21
+    )
+
+
+    digital_infrastructure_gap = (
+        software_tools in {
+            "none",
+            "not enough"
+        }
+        or automation == "no"
+        or sop_coverage == "no"
+    )
+
+
+    if (
+        digital_readiness_score is not None
+        and digital_readiness_score >= 7
+        and digital_infrastructure_gap
+    ):
+
+        adjusted_readiness_score = (
+            digital_readiness_score
+            * 0.60
+        )
+
+        results["operations"].append(
+            make_rule_result(
+                rule_id="3.8",
+                silo="operations",
+                title="Digital readiness perception gap detected",
+                analysis=(
+                    f"Self-assessed digital readiness is "
+                    f"{digital_readiness_score:g}, but the supporting "
+                    f"digital or process infrastructure does not meet "
+                    f"the official rule requirements. Rule 3.8 applies "
+                    f"the prescribed 40% downward adjustment, producing "
+                    f"a rule-derived readiness value of "
+                    f"{adjusted_readiness_score:g}."
+                ),
+                evidence_question_ids=[
+                    21,
+                    22,
+                    23,
+                    26
+                ],
+                recommendations=[
+                    "Strengthen the missing digital and process foundations before treating the self-assessed readiness score as achieved maturity."
+                ],
+                classification="PERCEPTION GAP",
+                kind="estimated_rule",
+                confidence="high"
+            )
+        )
+
+    sop_incomplete = (
+        sop_coverage == "no"
+        or "some" in sop_coverage
+    )
+
+
+    if sop_incomplete:
+
+        # -------------------------------------------------
+        # STRATEGY EFFECT
+        # -------------------------------------------------
+
+        results["strategy"].append(
+            make_rule_result(
+                rule_id="3.9",
+                silo="strategy",
+                title="Incomplete SOP coverage constrains systems effectiveness",
+                analysis=(
+                    "Important processes are not fully documented. "
+                    "Under official Rule 3.9, incomplete SOP coverage "
+                    "reduces the Systems component of the strategy "
+                    "framework."
+                ),
+                evidence_question_ids=[
+                    21
+                ],
+                recommendations=[
+                    "Expand SOP documentation across critical processes."
+                ],
+                classification=None,
+                kind="rule",
+                confidence="high"
+            )
+        )
+
+
+        # -------------------------------------------------
+        # SERVICE EFFECT
+        # -------------------------------------------------
+
+        results["service"].append(
+            make_rule_result(
+                rule_id="3.9",
+                silo="service",
+                title="Incomplete SOP coverage creates service consistency risk",
+                analysis=(
+                    "Important processes are documented only partially "
+                    "or not at all. Official Rule 3.9 therefore creates "
+                    "a service-consistency risk."
+                ),
+                evidence_question_ids=[
+                    21
+                ],
+                recommendations=[
+                    "Standardise service-critical processes through complete SOP coverage."
+                ],
+                classification="RISK",
+                kind="rule",
+                confidence="high"
+            )
+        )
+
+
+        # -------------------------------------------------
+        # PEOPLE EFFECT
+        # -------------------------------------------------
+
+        results["people"].append(
+            make_rule_result(
+                rule_id="3.9",
+                silo="people",
+                title="Incomplete SOP coverage limits accountability",
+                analysis=(
+                    "Incomplete process documentation constrains "
+                    "accountability under official Rule 3.9."
+                ),
+                evidence_question_ids=[
+                    21
+                ],
+                recommendations=[
+                    "Link documented processes to clear role ownership and accountability."
+                ],
+                classification=None,
+                kind="rule",
+                confidence="high"
+            )
+        )
+
+
+    # =====================================================
     # FINANCIAL — RULE 4.1 REVENUE CONCENTRATION
     # Current Q28
     # =====================================================
@@ -1204,57 +1390,272 @@ def evaluate_official_ontology_rules(
         )
 
 
-    aml_minimal = (
+    referral_policy = answer_lower(
+        answers,
+        47
+    )
+
+
+    aml_classification = None
+    aml_control_maturity = None
+    aml_recommendations = []
+
+
+    screening_automated_or_periodic = (
+        "automated" in sanctions
+        or "periodic manual" in sanctions
+    )
+
+    screening_periodic = (
+        "periodic manual" in sanctions
+    )
+
+    referral_policy_written = (
+        "written" in referral_policy
+        or (
+            "yes" in referral_policy
+            and "transparent" in referral_policy
+        )
+    )
+
+
+    # ROBUST
+    if (
+        (
+            "yes, always" in ubo
+            or ubo == "always"
+        )
+        and screening_automated_or_periodic
+        and referral_policy_written
+    ):
+        aml_control_maturity = "ROBUST"
+        aml_classification = "MEDIUM"
+
+        aml_recommendations = [
+            "Maintain robust AML, UBO and screening controls and review them regularly."
+        ]
+
+
+    # ADEQUATE
+    elif (
+        "occasionally" in ubo
+        and screening_periodic
+    ):
+        aml_control_maturity = "ADEQUATE"
+        aml_classification = "HIGH"
+
+        aml_recommendations = [
+            "Strengthen UBO verification and screening controls to move from adequate to robust AML maturity."
+        ]
+
+
+    # MINIMAL
+    elif (
         "only if required by bank" in ubo
         or ubo == "no"
         or "onboarding only" in sanctions
         or "no formal process" in sanctions
-    )
+    ):
+        aml_control_maturity = "MINIMAL"
+        aml_classification = "CRITICAL"
 
-    if aml_minimal:
-        aml_evidence_ids = []
+        aml_recommendations = [
+            "Engage a compliance specialist and strengthen AML, UBO and screening controls immediately."
+        ]
 
-        if (
-            "only if required by bank" in ubo
-            or ubo == "no"
-        ):
-            aml_evidence_ids.append(
-                45
-            )
 
-        if (
-            "onboarding only" in sanctions
-            or "no formal process" in sanctions
-        ):
-            aml_evidence_ids.append(
-                44
-            )
+    if aml_classification:
 
         results["risk"].append(
             make_rule_result(
                 rule_id="7.8",
                 silo="risk",
-                title="AML control maturity is minimal and actual AML risk is critical",
-                analysis=(
-                    "The current UBO verification and/or sanctions "
-                    "screening controls meet the official PULSE "
-                    "criteria for MINIMAL AML controls. Under Rule "
-                    "7.8, actual AML risk is therefore classified "
-                    "as CRITICAL."
+                title=(
+                    f"AML control maturity is "
+                    f"{aml_control_maturity.lower()} and "
+                    f"actual AML risk is "
+                    f"{aml_classification.lower()}"
                 ),
-                evidence_question_ids=aml_evidence_ids,
-                recommendations=[
-                    "Engage a compliance specialist and strengthen AML, UBO and screening controls immediately."
+                analysis=(
+                    f"The official PULSE AML rule classifies the "
+                    f"current control environment as "
+                    f"{aml_control_maturity}. Actual AML risk is "
+                    f"therefore {aml_classification}."
+                ),
+                evidence_question_ids=[
+                    question_id
+                    for question_id in [
+                        44,
+                        45,
+                        47
+                    ]
+                    if answer_text(
+                        answers,
+                        question_id
+                    )
                 ],
-                classification="CRITICAL"
+                recommendations=aml_recommendations,
+                classification=aml_classification,
+                kind="rule",
+                confidence="high"
             )
         )
 
 
-    # =====================================================
-    # RISK — RUNWAY RESILIENCE
-    # Current Q48
-    # =====================================================
+    sanctions_score = None
+    ubo_score = None
+    contractor_score = None
+    referral_policy_score = None
+
+
+    # -----------------------------------------------------
+    # Sanctions screening = 35%
+    # -----------------------------------------------------
+
+    if "automated" in sanctions:
+        sanctions_score = 100
+
+    elif "periodic manual" in sanctions:
+        sanctions_score = 60
+
+    elif "onboarding only" in sanctions:
+        sanctions_score = 30
+
+    elif "no formal process" in sanctions:
+        sanctions_score = 0
+
+
+    # -----------------------------------------------------
+    # UBO verification = 35%
+    # -----------------------------------------------------
+
+    if (
+        "yes, always" in ubo
+        or ubo == "always"
+    ):
+        ubo_score = 100
+
+    elif "occasionally" in ubo:
+        ubo_score = 40
+
+    elif "only if required by bank" in ubo:
+        ubo_score = 30
+
+    elif ubo == "no":
+        ubo_score = 0
+
+
+    # -----------------------------------------------------
+    # Contractor insurance = 15%
+    # -----------------------------------------------------
+
+    if contractor_insurance == "yes":
+        contractor_score = 100
+
+    elif "sometimes" in contractor_insurance:
+        contractor_score = 50
+
+    elif contractor_insurance == "no":
+        contractor_score = 0
+
+
+    # -----------------------------------------------------
+    # Referral fee policy = 15%
+    # -----------------------------------------------------
+
+    if (
+        "written" in referral_policy
+        and "transparent" in referral_policy
+    ):
+        referral_policy_score = 100
+
+    elif (
+        "yes" in referral_policy
+        and "transparent" in referral_policy
+    ):
+        # Current assessment wording:
+        # "Yes, transparent"
+        referral_policy_score = 100
+
+    elif "informal" in referral_policy:
+        referral_policy_score = 50
+
+    elif (
+        "no policy" in referral_policy
+        or referral_policy == "no"
+    ):
+        referral_policy_score = 0
+
+
+    compliance_components = [
+        sanctions_score,
+        ubo_score,
+        contractor_score,
+        referral_policy_score
+    ]
+
+    if all(
+        score is not None
+        for score in compliance_components
+    ):
+
+        compliance_maturity_score = (
+            sanctions_score * 0.35
+            + ubo_score * 0.35
+            + contractor_score * 0.15
+            + referral_policy_score * 0.15
+        )
+
+        if compliance_maturity_score >= 75:
+            compliance_classification = "ADVANCED"
+
+        elif compliance_maturity_score >= 50:
+            compliance_classification = "DEVELOPING"
+
+        elif compliance_maturity_score >= 25:
+            compliance_classification = "BASIC"
+
+        else:
+            compliance_classification = "NON-EXISTENT"
+
+
+        results["risk"].append(
+            make_rule_result(
+                rule_id="7.7",
+                silo="risk",
+                title=(
+                    "Compliance maturity is "
+                    f"{compliance_classification.lower()}"
+                ),
+                analysis=(
+                    "The official PULSE compliance maturity model "
+                    "combines sanctions screening, UBO verification, "
+                    "contractor insurance controls and referral-fee "
+                    "policy using the prescribed 35%, 35%, 15% and "
+                    "15% weights."
+                ),
+                evidence_question_ids=[
+                    43,
+                    44,
+                    45,
+                    47
+                ],
+                recommendations=(
+                    [
+                        "Address the weakest compliance controls before expanding risk exposure."
+                    ]
+                    if compliance_classification
+                    != "NON-EXISTENT"
+                    else
+                    [
+                        "Treat the compliance-control deficiency as an immediate priority and establish formal screening, ownership-verification and governance controls."
+                    ]
+                ),
+                classification=compliance_classification,
+                kind="rule",
+                confidence="high"
+            )
+        )
 
     runway = answer_lower(
         answers,
@@ -1281,10 +1682,95 @@ def evaluate_official_ontology_rules(
     ):
         runway_classification = "CRITICAL"
 
-    if runway_classification:
+    revenue_concentration_high = (
+        "50-75" in concentration_revenue
+        or "75-100" in concentration_revenue
+        or ">50" in concentration_revenue
+        or "over 50" in concentration_revenue
+    )
+
+    recurring_below_25 = (
+        "<25" in recurring
+        or "under 25" in recurring
+        or "0-25" in recurring
+    )
+
+    perfect_storm_financial_risk = (
+        runway_classification in {
+            "WEAK",
+            "CRITICAL"
+        }
+        and (
+            revenue_concentration_high
+            or recurring_below_25
+        )
+    )
+
+
+    if perfect_storm_financial_risk:
+
         results["risk"].append(
             make_rule_result(
-                rule_id="7.3",
+                rule_id="7.9",
+                silo="risk",
+                title="Operational resilience risk is critical",
+                analysis=(
+                    "Operational runway is weak or critical and is "
+                    "combined with an additional financial resilience "
+                    "trigger. Under the official PULSE resilience rule, "
+                    "the risk escalates to CRITICAL."
+                ),
+                evidence_question_ids=[
+                    question_id
+                    for question_id in [
+                        28,
+                        30,
+                        48
+                    ]
+                    if answer_text(
+                        answers,
+                        question_id
+                    )
+                ],
+                recommendations=[
+                    "Build cash reserves as a priority and strengthen financial contingency planning."
+                ],
+                classification="CRITICAL",
+                kind="rule",
+                confidence="high"
+            )
+        )
+
+    elif runway_classification:
+
+        if runway_classification == "STRONG":
+
+            recommendation = (
+                "Maintain cash resilience and preserve sufficient reserves for extended market disruption."
+            )
+
+        elif runway_classification == "MODERATE":
+
+            recommendation = (
+                "Maintain sufficient liquidity for typical market cycles and monitor runway."
+            )
+
+        elif runway_classification == "WEAK":
+
+            recommendation = (
+                "Build cash reserves as a priority."
+            )
+
+        else:
+
+            recommendation = (
+                "Implement emergency financial measures immediately."
+            )
+
+
+        results["risk"].append(
+            make_rule_result(
+                rule_id="7.9",
                 silo="risk",
                 title=(
                     "Operational resilience is "
@@ -1292,17 +1778,133 @@ def evaluate_official_ontology_rules(
                 ),
                 analysis=(
                     f"The reported operational runway is "
-                    f"{answer_text(answers, 48)}. The official "
-                    f"resilience thresholds classify this as "
+                    f"{answer_text(answers, 48)}. Under the "
+                    f"official PULSE operational-resilience thresholds "
+                    f"this is classified as "
                     f"{runway_classification}."
                 ),
                 evidence_question_ids=[
                     48
                 ],
                 recommendations=[
-                    "Manage cash runway according to the identified resilience level and strengthen contingency funding options."
+                    recommendation
                 ],
-                classification=runway_classification
+                classification=runway_classification,
+                kind="rule",
+                confidence="high"
+            )
+        )
+
+    employee_count = answer_lower(
+        answers,
+        14
+    )
+
+    small_team = (
+        "0-5" in employee_count
+        or "6-10" in employee_count
+    )
+
+    growth_opportunities = answer_lower(
+        answers,
+        12
+    ) 
+
+    growth_opportunities_are_ambitious = False
+
+    if (
+        small_team
+        and turnover_at_least_50
+        and growth_opportunities_are_ambitious
+    ):
+
+        results["strategy"].append(
+            make_rule_result(
+                rule_id="CS.22",
+                silo="strategy",
+                title="Team instability may constrain the growth strategy",
+                analysis=(
+                    "The business has a small team, employee turnover "
+                    "is at least 50%, and growth opportunities are "
+                    "being pursued. The cross-silo rule identifies "
+                    "team stability as a prerequisite for scaling."
+                ),
+                evidence_question_ids=[
+                    12,
+                    14,
+                    18
+                ],
+                recommendations=[
+                    "Stabilise employee retention before materially scaling growth activity."
+                ],
+                classification="HIGH PRIORITY",
+                kind="rule",
+                confidence="high"
+            )
+        )
+
+        results["marketing"].append(
+            make_rule_result(
+                rule_id="CS.22",
+                silo="marketing",
+                title="Team instability may constrain marketing-led growth",
+                analysis=(
+                    "A small team combined with employee turnover of "
+                    "at least 50% can constrain the organisation's "
+                    "capacity to support additional customer acquisition."
+                ),
+                evidence_question_ids=[
+                    12,
+                    14,
+                    18
+                ],
+                recommendations=[
+                    "Stabilise team capacity before materially increasing acquisition activity."
+                ],
+                classification="HIGH PRIORITY",
+                kind="rule",
+                confidence="high"
+            )
+        )
+
+    concentration_over_50 = (
+        "50-75" in concentration
+        or "75-100" in concentration
+        or ">50" in concentration
+        or "over 50" in concentration
+    )
+
+    outbound_dependent = (
+        "0-20" in inbound
+        or "20-40" in inbound
+    )
+
+    if (
+        concentration_over_50
+        and outbound_dependent
+    ):
+        results["marketing"].append(
+            make_rule_result(
+                rule_id="CS.22-SALES-SCALABILITY",
+                silo="marketing",
+                title="Knowledge concentration limits sales scalability",
+                analysis=(
+                    "More than 50% of critical client relationships "
+                    "or technical expertise is concentrated in one "
+                    "individual while lead generation is outbound "
+                    "dependent. The official cross-rule identifies "
+                    "a sales scalability constraint."
+                ),
+                evidence_question_ids=[
+                    20,
+                    31
+                ],
+                recommendations=[
+                    "Document expert knowledge into a sales playbook to enable team selling."
+                ],
+                classification="SCALABILITY RISK",
+                kind="rule",
+                confidence="high"
             )
         )
 
@@ -1495,6 +2097,45 @@ Return ONLY valid JSON:
             int(item["question_id"])
             for item in semantic_answers
         }
+
+
+        # =================================================
+        # INCLUDE OFFICIAL CROSS-SILO RULE EVIDENCE
+        # =================================================
+        #
+        # A deterministic rule may legitimately use a
+        # question outside the silo's direct evidence scope.
+        #
+        # Example:
+        #
+        # Rule 3.9 generates Strategy / People / Service
+        # findings from Q21 even though Q21 is primarily an
+        # Operations assessment question.
+        #
+        # Those IDs must therefore remain valid.
+        # =================================================
+
+        for rule in silo_rules:
+
+            for question_id in (
+                rule.get(
+                    "evidence_question_ids"
+                )
+                or []
+            ):
+
+                try:
+
+                    valid_question_ids.add(
+                        int(
+                            question_id
+                        )
+                    )
+
+                except Exception:
+
+                    continue
+
 
         official_rule_ids = {
             str(rule.get("rule_id"))

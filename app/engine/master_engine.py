@@ -1,6 +1,6 @@
-# app/engine/master_engine.py
-
 from typing import Dict, Any, List
+from concurrent.futures import ThreadPoolExecutor, as_completed
+
 import os
 import json
 
@@ -38,7 +38,9 @@ OPENAI_ANALYSIS_MODEL = os.getenv(
 
 
 openai_client = OpenAI(
-    api_key=OPENAI_API_KEY
+    api_key=OPENAI_API_KEY,
+    timeout=30.0,
+    max_retries=2
 )
 
 
@@ -232,13 +234,10 @@ def build_answer_evidence(
 # =========================================================
 # INTELLIGENT SILO FINDINGS
 # =========================================================
-
 def build_intelligent_silo_findings(
     *,
     silo_name: str,
-    answers: Dict[str, Any],
-    silo_rules_output: Any,
-    cross_analysis: Any
+    answers: Dict[str, Any]
 ) -> Dict[str, Any]:
     """
     Convert evidence-backed assessment results into
@@ -252,124 +251,217 @@ def build_intelligent_silo_findings(
 
     evidence = {
         "silo": silo_name,
-
-        "direct_assessment_evidence": (
-            semantic_answers
-        ),
-
-        "derived_silo_indicators": (
-            silo_rules_output
-        ),
-
-        "cross_silo_evidence": (
-            cross_analysis
-        )
+        "direct_assessment_evidence": semantic_answers
     }
 
 
     instructions = """
 You are the analytical intelligence layer for PULSE.
 
-You are analysing ONE business silo.
+You are analysing ONE business silo using ONLY direct answers
+provided by the respondent.
 
-Your job is to identify meaningful business findings from the
-assessment evidence supplied to you.
+The supplied evidence contains:
 
-EVIDENCE HIERARCHY:
+- question_id
+- the meaning of the question
+- the respondent's actual answer
 
-1. direct_assessment_evidence is the primary factual source;
-2. derived_silo_indicators are interpretations calculated from those answers;
-3. cross_silo_evidence may strengthen or contextualise a finding when
-   genuinely relevant.
+Your job is to identify useful business findings while remaining
+strictly faithful to those answers.
 
-CRITICAL RULES:
+=========================================================
+ABSOLUTE EVIDENCE RULES
+=========================================================
 
-1. Use ONLY the supplied evidence.
+1. Use ONLY direct_assessment_evidence.
 
-2. Never invent:
-   - facts;
-   - percentages;
-   - financial values;
-   - customer values;
-   - employee values;
-   - metrics;
-   - timelines;
-   - causes;
-   - events;
-   - KPIs;
-   - risks.
+2. Every factual statement in a finding must be directly supported
+   by one or more supplied assessment answers.
 
-3. Never claim that an unmeasured metric exists.
+3. Never invent or calculate a metric that was not directly asked
+   in the assessment.
 
-Examples of metrics that must NOT be invented unless explicitly supplied
-as valid evidence include:
-   - NPS;
-   - CLV;
-   - CAC;
-   - CLV:CAC;
-   - SERVQUAL;
-   - ROE;
-   - net profit margin;
-   - asset turnover;
-   - DSO;
-   - cash conversion cycle.
+4. Never manufacture:
+   - percentages
+   - averages
+   - financial ratios
+   - scores
+   - health scores
+   - maturity scores
+   - risk scores
+   - benchmark scores
+   - indexes
+   - probabilities
+   - financial values
+   - customer values
+   - employee values
 
-4. A derived indicator is a decision-support signal, not an independently
-observed business fact.
+5. Never create or infer formal metrics such as:
+   - NPS
+   - SERVQUAL
+   - CLV
+   - CAC
+   - CLV:CAC
+   - ROE
+   - net profit margin
+   - DSO
+   - cash conversion cycle
+   - asset turnover
+   - digital intensity scores
+   - transformation management scores
+   - team health scores
+   - positioning scores
+   - segmentation scores
+   unless that exact metric was explicitly measured in the
+   assessment evidence.
 
-5. Direct user answers take precedence over a derived interpretation
-if there is any conflict.
+=========================================================
+INTERPRETATION RULES
+=========================================================
 
-6. Ignore:
-   - null;
-   - None;
-   - empty strings;
-   - empty arrays;
-   - empty dictionaries;
-   - UNKNOWN;
-   - unavailable values.
+6. You MAY make cautious qualitative interpretations where the
+   relationship is directly supported by the answers.
 
-7. Cross-silo evidence must not become the sole basis of an unrelated
-silo finding.
+For example:
 
-8. Every finding for the current silo must have direct support from:
-   - at least one direct assessment answer relevant to this silo; or
-   - a valid derived indicator based on those direct answers.
+If the respondent says:
+- more than 50% of critical expertise is held by one person
 
-9. Do not turn implementation keys, internal framework names or
-calculation names into user-facing findings.
+you may say:
+- there is substantial key-person concentration.
 
-10. Finding titles must state the actual business conclusion.
+You may NOT invent a numerical risk score.
 
-11. Analysis must explicitly explain what evidence supports the finding.
+7. Do not convert an answer range into an exact value.
 
-12. Do not claim causation when the evidence only supports:
-   - association;
-   - exposure;
-   - warning;
-   - potential constraint;
-   - risk signal.
+For example:
 
-13. Recommendations must address the identified evidence directly.
+"25-50%" must remain "25-50%".
 
-14. Recommendations must not introduce facts that were not supplied.
+Do NOT convert it into:
+37.5%.
 
-15. Do not force a fixed number of findings.
+8. Do not turn absence of a selected option into negative evidence.
 
-16. If there is insufficient evidence for a meaningful finding,
-return an empty findings array.
+For example:
 
-17. Do not copy examples from these instructions.
+If "speed" is not selected as something customers praise,
+you may NOT conclude that response speed is poor.
 
-18. Use clear professional British English.
+9. Do not interpret:
 
-Return ONLY valid JSON with exactly this structure:
+"No suspected financial waste"
+
+as proof that:
+- cost management is healthy;
+- financial controls are strong;
+- no waste exists.
+
+You may only state that:
+- the respondent does not currently report suspected financial waste.
+
+10. Do not label a result:
+- healthy
+- unhealthy
+- strong
+- weak
+- excellent
+- poor
+- critical
+- high risk
+- low risk
+
+unless that description follows plainly from the actual answer itself
+or from an explicit assessment category supplied in the evidence.
+
+Prefer factual wording such as:
+
+- "less than 25% turnover was reported"
+- "25-50% recurring revenue was reported"
+- "some employees understand company goals"
+- "SOPs exist for some processes"
+- "sanctions screening has no formal process"
+
+rather than inventing benchmark labels.
+
+11. Do not claim causation unless the answers directly establish it.
+
+Use cautious wording such as:
+
+- may constrain
+- creates exposure to
+- may contribute to
+- indicates a potential gap
+- suggests an area to investigate
+
+where causation has not been measured.
+
+12. Do not claim that one answer caused another answer.
+
+13. Do not exaggerate.
+
+14. Do not minimise genuine risks shown directly by the answers.
+
+=========================================================
+MULTI-ANSWER ANALYSIS
+=========================================================
+
+15. You should connect multiple answers when their relationship is
+    logically relevant.
+
+Example:
+
+A written strategy together with only partial employee understanding
+can support a finding that internal strategic alignment may be incomplete.
+
+16. When connecting answers, explicitly state which evidence supports
+    the conclusion.
+
+17. Do not combine unrelated answers merely to create more findings.
+
+=========================================================
+FINDINGS
+=========================================================
+
+18. Do not force a fixed number of findings.
+
+19. Findings should represent meaningful conclusions, not repetitions
+    of every answer.
+
+20. Do not create a positive finding simply because an answer does
+    not reveal a problem.
+
+21. Do not create a negative finding simply because a positive option
+    was not selected.
+
+22. Recommendations must directly address the evidence described in
+    the finding.
+
+23. Recommendations may suggest reasonable next actions, but must not
+    assume facts about the company that were not supplied.
+
+24. Use professional British English.
+
+=========================================================
+EVIDENCE TRACEABILITY
+=========================================================
+
+25. Every finding MUST contain evidence_question_ids.
+
+26. evidence_question_ids may contain ONLY question IDs actually
+    supplied in direct_assessment_evidence.
+
+27. Include every question materially used to reach the finding.
+
+Return ONLY valid JSON in exactly this structure:
 
 {
   "findings": [
     {
-      "title": "short, specific business conclusion",
-      "analysis": "evidence-based explanation of why this conclusion is supported",
+      "title": "short factual business conclusion",
+      "analysis": "clear explanation based only on supplied answers",
+      "evidence_question_ids": [1, 2],
       "recommendations": [
         "specific evidence-grounded action"
       ]
@@ -449,6 +541,43 @@ Return ONLY valid JSON with exactly this structure:
                 or ""
             ).strip()
 
+            evidence_question_ids = finding.get(
+                "evidence_question_ids"
+            ) or []
+
+            if not isinstance(
+                evidence_question_ids,
+                list
+            ):
+                evidence_question_ids = []
+
+            valid_question_ids = {
+                int(item["question_id"])
+                for item in semantic_answers
+                if str(
+                    item.get("question_id")
+                ).isdigit()
+            }
+
+            clean_evidence_question_ids = []
+
+            for question_id in evidence_question_ids:
+
+                try:
+                    question_id = int(
+                        question_id
+                   )
+                except Exception:
+                    continue
+
+                if question_id not in valid_question_ids:
+                    continue
+
+                if question_id not in clean_evidence_question_ids:
+                    clean_evidence_question_ids.append(
+                        question_id
+                    )
+
             recommendations = finding.get(
                 "recommendations"
             ) or []
@@ -473,12 +602,14 @@ Return ONLY valid JSON with exactly this structure:
             if (
                 not title
                 or not analysis
+                or not clean_evidence_question_ids
             ):
                 continue
 
             clean_findings.append({
                 "title": title,
                 "analysis": analysis,
+                "evidence_question_ids": clean_evidence_question_ids,
                 "recommendations": recommendations
             })
 
@@ -508,14 +639,15 @@ Return ONLY valid JSON with exactly this structure:
 # =========================================================
 # MASTER ENGINE
 # =========================================================
-
 def run_full_analysis(
     data: Any
 ) -> Dict[str, Any]:
     """
-    Run deterministic evidence extraction first,
-    cross-silo analysis second,
-    then generate user-facing findings.
+    Generate the user-facing PULSE analysis directly from
+    the respondent's latest authoritative assessment answers.
+
+    Legacy deterministic silo/cross calculations are available
+    only in explicit backend debug mode.
     """
 
     if not isinstance(
@@ -526,134 +658,131 @@ def run_full_analysis(
 
 
     # =====================================================
-    # 1. RUN SILO RULES
+    # 1. GENERATE USER-FACING SILO ANALYSIS IN PARALLEL
+    # =====================================================
+    #
+    # IMPORTANT:
+    #
+    # The user-facing intelligence layer receives ONLY:
+    #
+    # - exact assessment question meaning;
+    # - exact respondent answer.
+    #
+    # It does NOT receive synthetic silo scores,
+    # framework calculations or legacy cross-rules.
+    #
     # =====================================================
 
-    raw_silo1 = run_silo1(
-        data
+    silo_names = list(
+        SILO_QUESTION_IDS.keys()
     )
-
-    raw_silo2 = run_silo2(
-        data
-    )
-
-    raw_silo3 = run_silo3(
-        data
-    )
-
-    raw_silo4 = run_silo4(
-        data
-    )
-
-    raw_silo5 = run_silo5(
-        data,
-        silo1=raw_silo1,
-        silo4=raw_silo4
-    )
-
-    raw_silo6 = run_silo6(
-        data,
-        silo2=raw_silo2,
-        silo3=raw_silo3,
-        silo4=raw_silo4
-    )
-
-    raw_silo7 = run_silo7(
-        data,
-        silo4=raw_silo4
-    )
-
-
-    raw_silos = {
-        "strategy": raw_silo1,
-        "people": raw_silo2,
-        "operations": raw_silo3,
-        "financial": raw_silo4,
-        "marketing": raw_silo5,
-        "service": raw_silo6,
-        "risk": raw_silo7
-    }
-
-
-    # =====================================================
-    # 2. CROSS-SILO ANALYSIS
-    # =====================================================
-
-    cross = run_cross_analysis(
-        data=data,
-        silo1=raw_silo1,
-        silo2=raw_silo2,
-        silo3=raw_silo3,
-        silo4=raw_silo4,
-        silo5=raw_silo5,
-        silo6=raw_silo6,
-        silo7=raw_silo7
-    )
-
-
-    # =====================================================
-    # 3. GENERATE USER-FACING INTELLIGENCE
-    # =====================================================
 
     intelligent_silos = {}
 
-    for (
-        silo_name,
-        silo_output
-    ) in raw_silos.items():
+    with ThreadPoolExecutor(
+        max_workers=4
+    ) as executor:
 
-        intelligent_silos[
-            silo_name
-        ] = build_intelligent_silo_findings(
-            silo_name=silo_name,
-            answers=data,
-            silo_rules_output=silo_output,
-            cross_analysis=cross
+        future_to_silo = {}
+
+        for silo_name in silo_names:
+
+            future = executor.submit(
+                build_intelligent_silo_findings,
+                silo_name=silo_name,
+                answers=data
+            )
+
+            future_to_silo[
+                future
+            ] = silo_name
+
+        for future in as_completed(
+            future_to_silo
+        ):
+
+            silo_name = future_to_silo[
+                future
+            ]
+
+            try:
+
+                silo_result = future.result()
+
+                if not isinstance(
+                    silo_result,
+                    dict
+                ):
+                    silo_result = {
+                        "findings": []
+                    }
+
+                intelligent_silos[
+                    silo_name
+                ] = silo_result
+
+            except Exception as silo_error:
+
+                print(
+                    "SILO INTELLIGENCE ERROR:",
+                    {
+                        "silo": silo_name,
+                        "error_type": (
+                            type(
+                                silo_error
+                            ).__name__
+                        ),
+                        "error": str(
+                            silo_error
+                        )
+                    }
+                )
+
+                intelligent_silos[
+                    silo_name
+                ] = {
+                    "findings": []
+                }
+
+
+    # Restore stable silo ordering because parallel jobs
+    # can finish in any order.
+    intelligent_silos = {
+        silo_name: (
+            intelligent_silos.get(
+                silo_name,
+                {
+                    "findings": []
+                }
+            )
         )
-
-
-    # =====================================================
-    # 4. DO NOT MANUFACTURE AN OVERALL SCORE
-    # =====================================================
-    #
-    # The current silo outputs contain heterogeneous
-    # indicators:
-    #
-    # - positive health scores;
-    # - risk scores;
-    # - 1-5 ratings;
-    # - percentage-range midpoints;
-    # - categorical indicators.
-    #
-    # Averaging these values would not produce a defensible
-    # overall business score.
-    #
-    # =====================================================
-
-    overall_score = None
-
-
-    # =====================================================
-    # 5. FINAL USER-FACING RESULT
-    # =====================================================
-
-    result = {
-        "overall_score": overall_score,
-        "silos": intelligent_silos,
-        "cross_analysis": cross
+        for silo_name in silo_names
     }
 
 
     # =====================================================
-    # OPTIONAL RAW DEBUG OUTPUT
+    # 2. DO NOT MANUFACTURE AN OVERALL SCORE
+    # =====================================================
+
+    result = {
+        "overall_score": None,
+        "silos": intelligent_silos
+    }
+
+
+    # =====================================================
+    # 3. OPTIONAL LEGACY DEBUG ANALYSIS
     # =====================================================
     #
-    # Raw deterministic values should normally NOT be sent
-    # to the user-facing dashboard/PDF.
+    # These deterministic calculations are deliberately
+    # isolated from the normal PULSE response.
     #
-    # Enable only for backend debugging:
+    # They are executed ONLY when:
     #
     # PULSE_INCLUDE_RAW_ANALYSIS=true
+    #
+    # This means an outdated rule can never break the
+    # customer-facing analysis during normal use.
     #
     # =====================================================
 
@@ -668,9 +797,109 @@ def run_full_analysis(
     )
 
     if include_raw:
-        result[
-            "raw_silos"
-        ] = raw_silos
+
+        try:
+
+            raw_silo1 = run_silo1(
+                data
+            )
+
+            raw_silo2 = run_silo2(
+                data
+            )
+
+            raw_silo3 = run_silo3(
+                data
+            )
+
+            raw_silo4 = run_silo4(
+                data
+            )
+
+            raw_silo5 = run_silo5(
+                data,
+                silo1=raw_silo1,
+                silo4=raw_silo4
+            )
+
+            raw_silo6 = run_silo6(
+                data,
+                silo2=raw_silo2,
+                silo3=raw_silo3,
+                silo4=raw_silo4
+            )
+
+            raw_silo7 = run_silo7(
+                data,
+                silo4=raw_silo4
+            )
+
+            raw_silos = {
+                "strategy": raw_silo1,
+                "people": raw_silo2,
+                "operations": raw_silo3,
+                "financial": raw_silo4,
+                "marketing": raw_silo5,
+                "service": raw_silo6,
+                "risk": raw_silo7
+            }
+
+            result[
+                "raw_silos"
+            ] = raw_silos
+
+
+            try:
+
+                result[
+                    "cross_analysis"
+                ] = run_cross_analysis(
+                    data=data,
+                    silo1=raw_silo1,
+                    silo2=raw_silo2,
+                    silo3=raw_silo3,
+                    silo4=raw_silo4,
+                    silo5=raw_silo5,
+                    silo6=raw_silo6,
+                    silo7=raw_silo7
+                )
+
+            except Exception as cross_error:
+
+                print(
+                    "DEBUG CROSS ANALYSIS ERROR:",
+                    {
+                        "error_type": (
+                            type(
+                                cross_error
+                            ).__name__
+                        ),
+                        "error": str(
+                            cross_error
+                        )
+                    }
+                )
+
+                result[
+                    "cross_analysis"
+                ] = None
+
+
+        except Exception as raw_error:
+
+            print(
+                "DEBUG RAW ANALYSIS ERROR:",
+                {
+                    "error_type": (
+                        type(
+                            raw_error
+                        ).__name__
+                    ),
+                    "error": str(
+                        raw_error
+                    )
+                }
+            )
 
 
     return result

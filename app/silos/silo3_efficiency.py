@@ -1,268 +1,243 @@
-from typing import Dict, Any, List
+from typing import Dict, Any
 
 
-# =============================
-# RULE 3.1 — DIGITAL INTENSITY
-# =============================
+def answer(data: Dict[str, Any], question_id: int, default=""):
+    value = data.get(str(question_id), data.get(question_id, default))
+    return value if value is not None else default
+
+
+def items(data, question_id):
+    value = answer(data, question_id, [])
+
+    if isinstance(value, list):
+        return [str(x).strip() for x in value if str(x).strip()]
+
+    if not value:
+        return []
+
+    return [x.strip() for x in str(value).split(",") if x.strip()]
+
+
+def numeric_choice(value, default=0):
+    try:
+        return int(str(value).strip().split()[0])
+    except Exception:
+        return default
+
+
 def digital_intensity(data):
-    tool_map = {
+    tools = str(answer(data, 22)).strip()
+
+    tool_score = {
+        "Yes": 100,
+        "Some": 65,
+        "Not enough": 35,
+        "None": 0
+    }.get(tools, 0)
+
+    automation_score = (
+        100 if str(answer(data, 23)).strip() == "Yes" else 0
+    )
+
+    ai_score = (
+        100 if str(answer(data, 24)).strip() == "Yes" else 0
+    )
+
+    ai_areas = items(data, 25)
+    ai_breadth = min(len(ai_areas) / 6 * 100, 100)
+
+    readiness = numeric_choice(answer(data, 26)) * 10
+
+    score = (
+        tool_score
+        + automation_score
+        + ai_score
+        + ai_breadth
+        + readiness
+    ) / 5
+
+    return {
+        "score": round(score, 2),
+        "level": (
+            "HIGH"
+            if score >= 70
+            else "MEDIUM"
+            if score >= 45
+            else "LOW"
+        )
+    }
+
+
+def transformation_management(data):
+    sops = str(answer(data, 21)).strip().lower()
+
+    if "all" in sops:
+        sop_score = 100
+    elif "most" in sops:
+        sop_score = 75
+    elif "some" in sops:
+        sop_score = 40
+    elif sops == "no":
+        sop_score = 0
+    else:
+        sop_score = 0
+
+    strategy_score = (
+        100 if str(answer(data, 11)).strip() == "Yes" else 0
+    )
+
+    understanding = str(answer(data, 10)).strip()
+
+    alignment_score = {
         "Yes": 100,
         "Some": 60,
-        "Not enough": 40,
-        "None": 0
-    }
+        "No": 20
+    }.get(understanding, 0)
 
-    tool_score = tool_map.get(data.get("q3_tools"), 0)
-    automation_score = 100 if data.get("q4_automation") == "Yes" else 0
-    ai_score = 100 if data.get("q5_ai") == "Yes" else 0
-
-    ai_areas = data.get("q6_ai_areas") or []
-    ai_breadth = (len(ai_areas) / 6) * 100 if ai_areas else 0
-
-    readiness = (data.get("q7_digital_readiness", 0)) * 10
-
-    avg = (tool_score + automation_score + ai_score + ai_breadth + readiness) / 5
+    score = (
+        sop_score
+        + strategy_score
+        + alignment_score
+    ) / 3
 
     return {
-        "score": avg,
-        "level": "HIGH" if avg >= 60 else "LOW"
+        "score": round(score, 2),
+        "level": "STRONG" if score >= 60 else "WEAK"
     }
 
 
-# =============================
-# RULE 3.2 — TRANSFORMATION MGMT
-# =============================
-def transformation_management(data):
-    sop_map = {
-        "All": 100,
-        "Most": 75,
-        "Some": 40,
-        "None": 0
-    }
-
-    sop_score = sop_map.get(data.get("q2_sops"), 0)
-    strategy_score = 100 if data.get("q10_written_strategy") == "Yes" else 0
-    alignment_score = 100 if data.get("q9_employee_understanding") == "Yes" else 40
-
-    avg = (sop_score + strategy_score + alignment_score) / 3
-
-    return {
-        "score": avg,
-        "level": "STRONG" if avg >= 60 else "WEAK"
-    }
-
-
-# =============================
-# RULE 3.3 — MIT QUADRANT
-# =============================
 def mit_quadrant(di, tm):
     if di >= 60 and tm >= 60:
         return "DIGIRATI"
-    if di >= 60 and tm < 60:
+
+    if di >= 60:
         return "FASHIONISTAS"
-    if di < 60 and tm >= 60:
+
+    if tm >= 60:
         return "CONSERVATIVES"
+
     return "BEGINNERS"
 
 
-# =============================
-# RULE 3.4 — BOTTLENECK
-# =============================
-BOTTLENECK_MAP = {
-    "Not enough staff/capacity": "PEOPLE",
-    "Staff skill gaps/training needs": "PEOPLE",
-    "Cash flow/working capital constraints": "FINANCIAL",
-    "Inefficient processes/workflows": "PROCESS",
-    "Lack of clear procedures/SOPs": "PROCESS",
-    "Decision-making delays/approvals": "PROCESS",
-    "Technology/system limitations": "TECHNOLOGY",
-    "Supplier/vendor dependencies": "VENDOR",
-    "Sales/lead generation challenges": "COMMERCIAL",
-    "Quality control issues": "QUALITY",
-}
-
-
 def bottleneck(data):
-    category = BOTTLENECK_MAP.get(data.get("q8_bottleneck"), None)
-    severity = data.get("q8b_severity")
+    bottlenecks = items(data, 4)
+    severity = str(answer(data, 5)).strip()
 
     return {
-        "category": category,
+        "reported_bottlenecks": bottlenecks,
         "severity": severity
     }
 
 
-# =============================
-# RULE 3.5 — WASTE %
-# =============================
-def waste_estimate(data):
-    sop_base = {
-        "None": 35,
-        "Some": 25,
-        "Most": 15,
-        "All": 5
-    }
+def vendor_risk(data, _bottleneck=None):
+    value = str(answer(data, 27)).strip().lower()
 
-    waste = sop_base.get(data.get("q2_sops"), 25)
-
-    if data.get("q8b_severity") == "Critical impact":
-        waste += 20
-
-    if data.get("q8_duplication") == "A lot":
-        waste += 15
-
-    ai_areas = data.get("q6_ai_areas") or []
-
-    if data.get("q4_automation") == "No" and len(ai_areas) > 2:
-        waste += 10
-
-    if data.get("q7_admin_percent", 0) > 50:
-        waste += 15
-
-    return min(waste, 60)
-
-
-# =============================
-# RULE 3.6 — VENDOR RISK
-# =============================
-def vendor_risk(data, bottleneck_category):
-    if data.get("q8_vendor_backup") == "No" and bottleneck_category == "VENDOR":
+    if "highly dependent" in value:
         return {
             "risk": "HIGH",
-            "alert": "Vendor single point of failure"
+            "alert": "No pre-vetted Tier-2 alternative for critical dependency"
         }
 
-    if data.get("q8_vendor_backup") == "Some":
-        return {
-            "risk": "MEDIUM"
-        }
+    if "for some" in value:
+        return {"risk": "MEDIUM"}
 
-    return {"risk": "LOW"}
+    if "all critical services" in value:
+        return {"risk": "LOW"}
 
-
-# =============================
-# RULE 3.7 — AI PRIORITY
-# =============================
-def ai_priority(data, bottleneck_category):
-    scores = {}
-
-    ai_areas = data.get("q6_ai_areas") or []
-    improvements = data.get("q6_perf_improvements") or []
-
-    for area in ai_areas:
-        score = 0
-
-        if bottleneck_category == "COMMERCIAL" and area == "Sales":
-            score += 40
-
-        if bottleneck_category == "PROCESS" and area == "Operations":
-            score += 40
-
-        if bottleneck_category == "FINANCIAL" and area == "Finance":
-            score += 40
-
-        if "Better tools/technology" in improvements:
-            score += 10
-
-        if "Better processes/workflows" in improvements and area in ["Operations", "Admin"]:
-            score += 30
-
-        if data.get("q7_admin_percent", 0) > 50 and area == "Admin":
-            score += 20
-
-        if data.get("q4_automation") == "No":
-            score += 10
-
-        scores[area] = score
-
-    return sorted(scores.items(), key=lambda x: x[1], reverse=True)
+    return {"risk": "UNKNOWN"}
 
 
-# =============================
-# RULE 3.8 — READINESS GAP
-# =============================
 def readiness_gap(data):
-    readiness = data.get("q7_digital_readiness", 0)
+    readiness = numeric_choice(answer(data, 26))
+    tools = str(answer(data, 22)).strip()
+    automation = str(answer(data, 23)).strip()
+    sops = str(answer(data, 21)).lower()
 
-    if readiness >= 7:
-        if (
-            data.get("q3_tools") in ["None", "Not enough"]
-            or data.get("q4_automation") == "No"
-            or data.get("q2_sops") in ["None"]
-        ):
-            return {
-                "warning": "Digital readiness perception gap",
-                "adjusted_score": readiness * 0.6
-            }
-
-    return None
-
-
-# =============================
-# RULE 3.9 — SOP IMPACT
-# =============================
-def sop_impact(data):
-    if data.get("q2_sops") in ["None", "Some"]:
+    if readiness >= 7 and (
+        tools in ["None", "Not enough"]
+        or automation == "No"
+        or sops == "no"
+    ):
         return {
-            "systems_cap": 40,
-            "accountability_cap": 50,
-            "service_risk": True
+            "warning": "AI readiness perception is ahead of current operational foundations"
         }
 
     return None
 
 
-# =============================
-# RULE 3.10 — ROADMAP
-# =============================
+def sop_impact(data):
+    sops = str(answer(data, 21)).lower()
+
+    if sops == "no" or "some" in sops:
+        return {
+            "documentation_gap": True,
+            "service_consistency_risk": True
+        }
+
+    return None
+
+
+def ai_priority(data, _bottleneck=None):
+    return [
+        {"area": value}
+        for value in items(data, 25)
+    ]
+
+
 def transformation_roadmap(quadrant):
     if quadrant == "BEGINNERS":
         return [
-            "Document processes",
-            "Fix bottlenecks",
-            "Start automation pilot"
+            "Document priority processes",
+            "Address the reported bottlenecks",
+            "Pilot automation in one suitable workflow"
         ]
 
     if quadrant == "FASHIONISTAS":
         return [
-            "Audit tech ROI",
-            "Standardize processes",
-            "Align tech with strategy"
+            "Review technology usage against business priorities",
+            "Standardise core processes",
+            "Strengthen change management"
         ]
 
     if quadrant == "CONSERVATIVES":
         return [
-            "Identify automation opportunities",
-            "Pilot AI",
-            "Scale automation"
+            "Identify suitable automation opportunities",
+            "Pilot one AI use case",
+            "Measure outcomes before wider deployment"
         ]
 
-    if quadrant == "DIGIRATI":
-        return [
-            "Optimize systems",
-            "Advanced AI",
-            "Build tech moat"
-        ]
+    return [
+        "Optimise existing systems",
+        "Scale proven automation",
+        "Evaluate higher-value AI opportunities"
+    ]
 
 
-# =============================
-# MAIN
-# =============================
 def run_silo3(data):
     di = digital_intensity(data)
     tm = transformation_management(data)
 
-    quadrant = mit_quadrant(di["score"], tm["score"])
-    bottleneck_data = bottleneck(data)
+    quadrant = mit_quadrant(
+        di["score"],
+        tm["score"]
+    )
 
     return {
         "digital_intensity": di,
         "transformation_management": tm,
         "quadrant": quadrant,
-        "bottleneck": bottleneck_data,
-        "waste_percent": waste_estimate(data),
-        "vendor_risk": vendor_risk(data, bottleneck_data["category"]),
-        "ai_priorities": ai_priority(data, bottleneck_data["category"]),
+        "bottleneck": bottleneck(data),
+
+        # There is no percentage-waste question.
+        "waste_percent": None,
+        "waste_signal": (
+            "REPORTED"
+            if str(answer(data, 29)).strip() == "Yes"
+            else "NOT_REPORTED"
+        ),
+
+        "vendor_risk": vendor_risk(data),
+        "ai_priorities": ai_priority(data),
         "readiness_gap": readiness_gap(data),
         "sop_impact": sop_impact(data),
         "roadmap": transformation_roadmap(quadrant)

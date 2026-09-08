@@ -1,231 +1,245 @@
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any
 
-# =============================
-# RULE 2.1 — TRUST
-# =============================
+
+def answer(data: Dict[str, Any], question_id: int, default=""):
+    value = data.get(str(question_id), data.get(question_id, default))
+    return value if value is not None else default
+
+
+def items(data, question_id):
+    value = answer(data, question_id, [])
+
+    if isinstance(value, list):
+        return [str(x).strip() for x in value if str(x).strip()]
+
+    if not value:
+        return []
+
+    return [x.strip() for x in str(value).split(",") if x.strip()]
+
+
+def midpoint(value, default=0):
+    text = str(value or "").strip().replace("–", "-")
+
+    ranges = {
+        "0-5": 2.5,
+        "5-10": 7.5,
+        "10-25": 17.5,
+        "25-50": 37.5,
+        ">50": 60,
+
+        "<25%": 12.5,
+        "25-50%": 37.5,
+        "50-75%": 62.5,
+        ">75%": 87.5,
+
+        "<10%": 5,
+        "10-25%": 17.5,
+        "25-50%": 37.5,
+        ">50%": 62.5,
+    }
+
+    return ranges.get(text, default)
+
+
 def trust_score(data):
     score = 0
 
-    if data.get("q4_engagement_measured") == "Yes":
+    if str(answer(data, 17)).strip() == "Yes":
         score += 30
 
-    turnover = data.get("q5_turnover", 0)
+    turnover = midpoint(answer(data, 18))
+
     if turnover < 25:
         score += 40
     elif turnover < 50:
         score += 20
 
-    if data.get("q3_roles_clear") == "Yes":
+    roles = str(answer(data, 16)).strip()
+
+    if roles == "Yes":
         score += 30
+    elif roles == "Some":
+        score += 15
 
     return {
         "score": score,
-        "level": "HIGH" if score >= 70 else "LOW"
+        "level": (
+            "HIGH"
+            if score >= 70
+            else "MEDIUM"
+            if score >= 50
+            else "LOW"
+        )
     }
 
 
-# =============================
-# RULE 2.2 — HEALTHY CONFLICT
-# =============================
 def conflict_health(data):
-    unhealthy = False
-    reason = None
-
-    turnover = data.get("q5_turnover", 0)
-    improvements = data.get("q6_perf_improvements") or []
-
-    if turnover >= 50 and any(x in improvements for x in [
-        "Stronger leadership/management",
-        "Improved communication/collaboration",
-        "Better work-life balance"
-    ]):
-        unhealthy = True
-        reason = "Artificial harmony — issues not surfaced"
-
-    if data.get("q4_engagement_measured") == "No" and data.get("q3_roles_clear") == "No":
-        unhealthy = True
-        reason = "Avoidance pattern — leadership not engaging issues"
-
-    return {
-        "status": "UNHEALTHY" if unhealthy else "HEALTHY",
-        "reason": reason
-    }
+    # No question directly measures healthy conflict.
+    return None
 
 
-# =============================
-# RULE 2.3 — COMMITMENT
-# =============================
 def commitment_score(data):
-    if data.get("q3_roles_clear") == "Yes" and data.get("q9_employee_understanding") == "Yes":
+    roles = str(answer(data, 16)).strip()
+    direction = str(answer(data, 10)).strip()
+
+    if roles == "Yes" and direction == "Yes":
         return {"score": 90, "status": "HIGH"}
 
-    if data.get("q3_roles_clear") == "No" and data.get("q9_employee_understanding") == "No":
+    if roles == "No" and direction == "No":
         return {
             "score": 30,
             "status": "LOW",
-            "alert": "Lack of Buy-In — Team doesn't understand roles or direction"
+            "alert": "Role clarity and organisational direction are both weak"
         }
 
     return {"score": 60, "status": "MEDIUM"}
 
 
-# =============================
-# RULE 2.4 — ACCOUNTABILITY
-# =============================
 def accountability_score(data):
-    base = 50
+    roles = str(answer(data, 16)).strip()
+    improvements = items(data, 19)
 
-    if data.get("q3_roles_clear") == "Yes":
-        base += 20
+    score = {
+        "Yes": 80,
+        "Some": 60,
+        "No": 35
+    }.get(roles, 50)
 
-    turnover = data.get("q5_turnover", 0)
-    if turnover >= 50:
-        base -= 20
-
-    improvements = data.get("q6_perf_improvements") or []
-
-    if any(x in improvements for x in [
-        "Clearer roles and responsibilities",
-        "Better processes/workflows",
-        "Stronger leadership/management"
-    ]):
-        base = 50
-
-    elif any(x in improvements for x in [
-        "Better tools/technology",
-        "Additional headcount"
-    ]):
-        base = 60
-
-    elif any(x in improvements for x in [
-        "Recognition/appreciation",
-        "More autonomy/empowerment"
-    ]):
-        base = 40
+    if any(
+        "clearer role" in x.lower()
+        for x in improvements
+    ):
+        score = min(score, 55)
 
     return {
-        "score": base,
-        "alert": "Low Standards Dysfunction" if base < 50 else None
+        "score": score,
+        "alert": (
+            "Role clarity is limiting accountability"
+            if score < 50
+            else None
+        )
     }
 
 
-# =============================
-# RULE 2.5 — RESULTS ORIENTATION
-# =============================
 def results_orientation(data):
-    concentration = data.get("q7_knowledge_concentration", 0)
+    concentration = midpoint(answer(data, 20))
 
     if concentration > 50:
-        return {"score": 30, "alert": "Succession Planning Required"}
-    elif concentration >= 25:
-        return {"score": 60}
-    else:
-        return {"score": 90}
+        return {
+            "score": 30,
+            "alert": "High key-person concentration"
+        }
+
+    if concentration >= 25:
+        return {
+            "score": 60,
+            "alert": "Moderate key-person concentration"
+        }
+
+    return {"score": 90}
 
 
-# =============================
-# RULE 2.6 — TEAM HEALTH
-# =============================
 def team_health(data):
-    trust = trust_score(data)["score"]
-    conflict = 40 if conflict_health(data)["status"] == "UNHEALTHY" else 80
-    commitment = commitment_score(data)["score"]
-    accountability = accountability_score(data)["score"]
-    results = results_orientation(data)["score"]
+    values = [
+        trust_score(data)["score"],
+        commitment_score(data)["score"],
+        accountability_score(data)["score"],
+        results_orientation(data)["score"]
+    ]
 
-    avg = (trust + conflict + commitment + accountability + results) / 5
+    score = sum(values) / len(values)
 
     return {
-        "score": avg,
-        "alert": "Lencioni Team Health Workshop recommended" if avg < 50 else None
+        "score": round(score, 2),
+        "level": (
+            "STRONG"
+            if score >= 75
+            else "MODERATE"
+            if score >= 50
+            else "WEAK"
+        )
     }
 
 
-# =============================
-# RULE 2.7 — TURNOVER CRISIS
-# =============================
 def turnover_analysis(data):
-    turnover = data.get("q5_turnover", 0)
+    turnover = midpoint(answer(data, 18))
 
     if turnover < 25:
-        level = "Healthy"
+        level = "HEALTHY"
     elif turnover < 50:
-        level = "Concerning"
+        level = "CONCERNING"
     elif turnover < 75:
-        level = "Critical"
+        level = "HIGH"
     else:
-        level = "Crisis"
+        level = "CRITICAL"
 
-    alerts = []
-
-    if turnover >= 50:
-        alerts.append("HR crisis threatening strategy execution")
-        alerts.append("Service quality at risk from turnover")
-
-    return {"level": level, "alerts": alerts}
+    return {
+        "estimated_range": str(answer(data, 18)),
+        "level": level
+    }
 
 
-# =============================
-# RULE 2.8 — KNOWLEDGE RISK
-# =============================
 def knowledge_risk(data):
-    concentration = data.get("q7_knowledge_concentration", 0)
-    turnover = data.get("q5_turnover", 0)
-
-    if concentration >= 25 and turnover >= 25:
-        return {
-            "risk": "CRITICAL",
-            "actions": [
-                "Document critical knowledge",
-                "Cross-train personnel",
-                "Retention plan for key staff"
-            ]
-        }
+    concentration = midpoint(answer(data, 20))
+    turnover = midpoint(answer(data, 18))
 
     if concentration > 50:
+        risk = "HIGH"
+    elif concentration >= 25 and turnover >= 25:
+        risk = "HIGH"
+    elif concentration >= 25:
+        risk = "MEDIUM"
+    else:
+        risk = "LOW"
+
+    return {
+        "risk": risk,
+        "knowledge_concentration": str(answer(data, 20))
+    }
+
+
+def org_complexity(data):
+    department_count = len(items(data, 15))
+    employee_count = midpoint(answer(data, 14))
+
+    if not department_count or not employee_count:
+        return {"status": "UNKNOWN"}
+
+    if department_count >= 5 and employee_count <= 25:
         return {
-            "risk": "CRITICAL",
-            "insight": "Single point of failure"
+            "status": "POTENTIALLY_OVER_STRUCTURED",
+            "department_count": department_count
         }
 
-    return {"risk": "LOW"}
-
-
-# =============================
-# RULE 2.9 — ORG COMPLEXITY
-# =============================
-def org_complexity(data):
-    departments = data.get("q2_departments", 0)
-    employees = data.get("q1_employee_count", 0)
-
-    if departments >= 5 and employees <= 25:
-        return {"status": "OVER-STRUCTURED", "insight": "Too many departments for size"}
-
-    if departments <= 2 and employees > 25:
-        return {"status": "UNDER-STRUCTURED", "insight": "Not enough structure for scale"}
-
-    return {"status": "BALANCED"}
-
-
-# =============================
-# RULE 2.10 — ROLE CLARITY IMPACT
-# =============================
-def role_clarity_impact(data):
-    if data.get("q3_roles_clear") == "No":
+    if department_count <= 2 and employee_count > 25:
         return {
-            "impact": [
-                "Reduces 7S Structure effectiveness",
-                "Reduces Staff alignment",
-                "Recommend KPI architecture"
-            ]
+            "status": "POTENTIALLY_UNDER_STRUCTURED",
+            "department_count": department_count
+        }
+
+    return {
+        "status": "BALANCED",
+        "department_count": department_count
+    }
+
+
+def role_clarity_impact(data):
+    roles = str(answer(data, 16)).strip()
+
+    if roles == "No":
+        return {
+            "impact": "Clear job descriptions and KPIs are not established"
+        }
+
+    if roles == "Some":
+        return {
+            "impact": "Role clarity and KPI coverage are incomplete"
         }
 
     return {"impact": None}
 
 
-# =============================
-# MAIN
-# =============================
 def run_silo2(data):
     return {
         "trust": trust_score(data),

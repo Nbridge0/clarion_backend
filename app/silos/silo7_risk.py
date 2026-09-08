@@ -1,253 +1,389 @@
-from typing import Dict, Any, List
+from typing import Dict, Any
 
 
-# =============================
-# RULE 7.1 — LIABILITY RISK
-# =============================
+def answer(data: Dict[str, Any], question_id: int, default=""):
+    value = data.get(str(question_id), data.get(question_id, default))
+    return value if value is not None else default
+
+
+def percentage_midpoint(value, default=0):
+    text = str(value or "").strip().replace("–", "-")
+
+    mapping = {
+        "<5%": 2.5,
+        "5-15%": 10,
+        "15-25%": 20,
+        "25-50%": 37.5,
+        "50-75%": 62.5,
+        ">75%": 87.5,
+
+        "<10%": 5,
+        "10-25%": 17.5,
+
+        "<25%": 12.5,
+    }
+
+    if text in mapping:
+        return mapping[text]
+
+    if "25-50" in text:
+        return 37.5
+
+    if "50-75" in text:
+        return 62.5
+
+    if ">75" in text:
+        return 87.5
+
+    if ">50" in text:
+        return 62.5
+
+    return default
+
+
+def runway_level(data):
+    value = str(answer(data, 48)).strip().replace("–", "-")
+
+    if "<3" in value:
+        return {
+            "months_band": "<3",
+            "score": 15,
+            "level": "CRITICAL"
+        }
+
+    if "3-6" in value:
+        return {
+            "months_band": "3-6",
+            "score": 40,
+            "level": "WEAK"
+        }
+
+    if "6-12" in value:
+        return {
+            "months_band": "6-12",
+            "score": 70,
+            "level": "MODERATE"
+        }
+
+    if ">12" in value:
+        return {
+            "months_band": ">12",
+            "score": 100,
+            "level": "STRONG"
+        }
+
+    return {
+        "months_band": None,
+        "score": 50,
+        "level": "UNKNOWN"
+    }
+
+
 def liability_risk(data):
-    prevention = []
+    contractor = str(answer(data, 43)).strip()
+    pi = str(answer(data, 46)).strip()
+    backup = str(answer(data, 27)).strip().lower()
 
-    contractor = data.get("q1_contractor_insurance")
-    vendor_backup = data.get("q8_vendor_backup")
-    pi = data.get("q4_pi_insurance")
+    issues = []
 
-    if contractor == "Yes":
-        prevention.append("STRONG")
+    if contractor == "No":
+        issues.append(
+            "Sub-contractors are not required to provide proof of insurance"
+        )
     elif contractor == "Sometimes":
-        prevention.append("WEAK")
-    else:
-        prevention.append("ABSENT")
+        issues.append(
+            "Sub-contractor insurance evidence is only collected sometimes"
+        )
 
-    if vendor_backup == "Yes":
-        prevention.append("MODERATE")
-    else:
-        prevention.append("WEAK")
-
-    if pi == "Yes":
-        recovery = "STRONG"
+    if pi == "No":
+        issues.append(
+            "Professional Indemnity insurance does not cover the largest contract"
+        )
     elif pi == "Partial":
-        recovery = "MODERATE"
-    else:
-        recovery = "ABSENT"
+        issues.append(
+            "Professional Indemnity insurance only partially covers the largest contract"
+        )
 
-    if "ABSENT" in prevention or recovery == "ABSENT":
+    if "highly dependent" in backup:
+        issues.append(
+            "No pre-vetted Tier-2 alternative exists for critical suppliers"
+        )
+
+    if any(
+        "does not" in value.lower()
+        or "no pre-vetted" in value.lower()
+        for value in issues
+    ):
+        risk = "HIGH"
+    elif issues:
+        risk = "MEDIUM"
+    else:
+        risk = "LOW"
+
+    return {
+        "risk": risk,
+        "issues": issues
+    }
+
+
+def sanctions_risk(data):
+    sanctions = str(answer(data, 44)).strip().lower()
+    ubo = str(answer(data, 45)).strip().lower()
+
+    if (
+        "no formal process" in sanctions
+        or ubo == "no"
+    ):
         return {
             "risk": "HIGH",
-            "alert": "Liability protection gap is critical"
+            "alert": "Material sanctions or UBO control gap"
         }
 
-    return {"risk": "LOW"}
-
-
-# =============================
-# RULE 7.2 — SANCTIONS / AML
-# =============================
-def sanctions_risk(data):
-    if data.get("q2_sanctions") == "None" or data.get("q3_ubo") == "No":
+    if (
+        "on-boarding only" in sanctions
+        or "occasionally" in ubo
+        or "bank" in ubo
+    ):
         return {
-            "risk": "CRITICAL",
-            "alert": "Critical compliance gap — sanctions screening"
+            "risk": "MEDIUM"
         }
 
-    return {"risk": "MEDIUM"}
+    if (
+        "automated" in sanctions
+        and "yes" in ubo
+    ):
+        return {
+            "risk": "LOW"
+        }
+
+    return {
+        "risk": "MEDIUM"
+    }
 
 
-# =============================
-# RULE 7.3 — FINANCIAL DISTRESS
-# =============================
 def financial_distress(data, silo4=None):
-    runway = data.get("q5_runway", 0)
-    concentration = data.get("q1_customer_concentration", 0)
+    runway = runway_level(data)
+    concentration = percentage_midpoint(answer(data, 28))
 
-    if runway < 3 and concentration >= 50:
+    if runway["level"] == "CRITICAL":
         return {
-            "risk": "CRITICAL",
-            "alert": "Existential financial risk"
+            "risk": "HIGH",
+            "reason": "Operational runway is below three months"
         }
 
-    return {"risk": "MEDIUM"}
+    if runway["level"] == "WEAK" and concentration >= 50:
+        return {
+            "risk": "HIGH",
+            "reason": "Limited runway is combined with high customer concentration"
+        }
+
+    if runway["level"] == "WEAK":
+        return {
+            "risk": "MEDIUM",
+            "reason": "Operational runway is between three and six months"
+        }
+
+    return {
+        "risk": "LOW"
+    }
 
 
-# =============================
-# RULE 7.4 — RISK IDENTIFICATION
-# =============================
-def identify_risks(data):
-    risks = []
-
-    if data.get("q12_owner_dependency") == "Yes":
-        risks.append(("Strategic", "Likely", "Catastrophic"))
-
-    if data.get("q5_turnover", 0) >= 50:
-        risks.append(("Operational", "Almost Certain", "Major"))
-
-    if data.get("q7_knowledge_concentration", 0) > 50:
-        risks.append(("Operational", "Possible", "Major"))
-
-    if data.get("q1_customer_concentration", 0) >= 50:
-        risks.append(("Financial", "Possible", "Catastrophic"))
-
-    if data.get("q2_suspects_waste") == "Yes":
-        risks.append(("Financial", "Likely", "Moderate"))
-
-    if data.get("q1_repeat_customers", 0) < 25:
-        risks.append(("Financial", "Almost Certain", "Major"))
-
-    return risks
-
-
-# =============================
-# RULE 7.5 — RISK MATRIX
-# =============================
-def risk_rating(likelihood, impact):
-    if impact == "Catastrophic":
-        if likelihood in ["Likely", "Almost Certain"]:
-            return "CRITICAL"
-        elif likelihood == "Possible":
-            return "HIGH"
-        return "MEDIUM"
-
-    if impact == "Major":
-        if likelihood in ["Likely", "Almost Certain"]:
-            return "HIGH"
-        elif likelihood == "Possible":
-            return "MEDIUM"
-        return "LOW"
-
-    if impact == "Moderate":
-        if likelihood in ["Likely", "Almost Certain"]:
-            return "MEDIUM"
-        return "LOW"
-
-    return "LOW"
-
-
-# =============================
-# RULE 7.6 — RISK TREATMENT
-# =============================
-def treatment(level):
-    if level == "CRITICAL":
-        return "IMMEDIATE MITIGATION"
-    if level == "HIGH":
-        return "MITIGATE IN 30 DAYS"
-    if level == "MEDIUM":
-        return "MONITOR"
-    return "ACCEPT"
-
-
-# =============================
-# RULE 7.7 — COMPLIANCE MATURITY
-# =============================
 def compliance(data):
-    score = 0
+    sanctions = str(answer(data, 44)).strip().lower()
+    ubo = str(answer(data, 45)).strip().lower()
+    contractor = str(answer(data, 43)).strip().lower()
+    pi = str(answer(data, 46)).strip().lower()
+    referral = str(answer(data, 47)).strip().lower()
 
-    score += {
-        "Automated": 100,
-        "Manual": 60,
-        "Onboarding": 30,
-        "None": 0
-    }.get(data.get("q2_sanctions"), 0) * 0.35
+    sanctions_score = 0
 
-    score += {
-        "Yes": 100,
-        "Sometimes": 40,
-        "Bank only": 30,
-        "No": 0
-    }.get(data.get("q3_ubo"), 0) * 0.35
+    if "automated" in sanctions:
+        sanctions_score = 100
+    elif "periodic manual" in sanctions:
+        sanctions_score = 70
+    elif "on-boarding only" in sanctions:
+        sanctions_score = 40
 
-    score += {
-        "Yes": 100,
-        "Sometimes": 50,
-        "No": 0
-    }.get(data.get("q1_contractor_insurance"), 0) * 0.15
+    if "yes" in ubo:
+        ubo_score = 100
+    elif "occasionally" in ubo:
+        ubo_score = 55
+    elif "bank" in ubo:
+        ubo_score = 35
+    else:
+        ubo_score = 0
 
-    score += {
-        "Yes": 100,
-        "Informal": 50,
-        "No": 0
-    }.get(data.get("q6_referral_policy"), 0) * 0.15
+    contractor_score = {
+        "yes": 100,
+        "sometimes": 50,
+        "no": 0
+    }.get(contractor, 0)
 
-    if score >= 75:
+    pi_score = {
+        "yes": 100,
+        "partial": 50,
+        "no": 0
+    }.get(pi, 0)
+
+    if "yes" in referral:
+        referral_score = 100
+    elif "informal" in referral:
+        referral_score = 50
+    else:
+        referral_score = 0
+
+    score = (
+        sanctions_score * 0.30
+        + ubo_score * 0.25
+        + contractor_score * 0.15
+        + pi_score * 0.15
+        + referral_score * 0.15
+    )
+
+    if score >= 80:
         level = "ADVANCED"
-    elif score >= 50:
+    elif score >= 60:
         level = "DEVELOPING"
-    elif score >= 25:
+    elif score >= 35:
         level = "BASIC"
     else:
-        level = "NON_EXISTENT"
+        level = "WEAK"
 
-    return {"score": score, "level": level}
+    return {
+        "score": round(score, 2),
+        "level": level
+    }
 
 
-# =============================
-# RULE 7.8 — AML RISK
-# =============================
 def aml(data):
-    if data.get("q3_ubo") == "No" or data.get("q2_sanctions") == "None":
-        return "CRITICAL"
+    sanctions = str(answer(data, 44)).strip().lower()
+    ubo = str(answer(data, 45)).strip().lower()
 
-    if data.get("q3_ubo") == "Sometimes":
+    if "no formal process" in sanctions or ubo == "no":
         return "HIGH"
+
+    if "occasionally" in ubo or "bank" in ubo:
+        return "MEDIUM"
+
+    if "automated" in sanctions and "yes" in ubo:
+        return "LOW"
 
     return "MEDIUM"
 
 
-# =============================
-# RULE 7.9 — RESILIENCE
-# =============================
 def resilience(data):
-    runway = data.get("q5_runway", 0)
-
-    if runway >= 12:
-        return "STRONG"
-    elif runway >= 6:
-        return "MODERATE"
-    elif runway >= 3:
-        return "WEAK"
-    else:
-        return "CRITICAL"
+    return runway_level(data)["level"]
 
 
-# =============================
-# RULE 7.10 — ENTERPRISE RISK
-# =============================
+def identify_risks(data):
+    risks = []
+
+    owner = str(answer(data, 13)).lower()
+
+    if "heavily owner-dependent" in owner:
+        risks.append({
+            "category": "STRATEGIC",
+            "level": "HIGH",
+            "evidence": "Business is heavily owner-dependent"
+        })
+
+    turnover = percentage_midpoint(answer(data, 18))
+
+    if turnover >= 50:
+        risks.append({
+            "category": "PEOPLE",
+            "level": "HIGH",
+            "evidence": f"Employee turnover reported as {answer(data, 18)}"
+        })
+
+    concentration = percentage_midpoint(answer(data, 20))
+
+    if concentration > 50:
+        risks.append({
+            "category": "PEOPLE",
+            "level": "HIGH",
+            "evidence": "More than half of critical expertise or relationships are concentrated in one person"
+        })
+
+    customer_concentration = percentage_midpoint(answer(data, 28))
+
+    if customer_concentration >= 50:
+        risks.append({
+            "category": "FINANCIAL",
+            "level": "HIGH",
+            "evidence": f"Customer concentration reported as {answer(data, 28)}"
+        })
+
+    if str(answer(data, 29)).strip() == "Yes":
+        risks.append({
+            "category": "FINANCIAL",
+            "level": "MEDIUM",
+            "evidence": "The business reports suspected areas of financial waste"
+        })
+
+    repeat = percentage_midpoint(answer(data, 38))
+
+    if repeat < 25:
+        risks.append({
+            "category": "COMMERCIAL",
+            "level": "MEDIUM",
+            "evidence": f"Repeat-customer rate reported as {answer(data, 38)}"
+        })
+
+    return risks
+
+
 def enterprise_risk(data):
-    risks = identify_risks(data)
+    identified = identify_risks(data)
+    compliance_data = compliance(data)
+    runway = runway_level(data)
 
-    critical = 0
-    high = 0
-
-    for r in risks:
-        level = risk_rating(r[1], r[2])
-        if level == "CRITICAL":
-            critical += 1
-        elif level == "HIGH":
-            high += 1
-
-    compliance_score = compliance(data)["score"]
-
-    resilience_score = {
-        "STRONG": 100,
-        "MODERATE": 70,
-        "WEAK": 40,
-        "CRITICAL": 0
-    }[resilience(data)]
-
-    score = 1.0 - (
-        (critical / 5) * 0.25 +
-        (high / 10) * 0.15 +
-        (compliance_score / 100) * 0.3 +
-        (resilience_score / 100) * 0.3
+    high_count = sum(
+        1
+        for risk in identified
+        if risk["level"] == "HIGH"
     )
 
+    medium_count = sum(
+        1
+        for risk in identified
+        if risk["level"] == "MEDIUM"
+    )
+
+    identified_risk_score = min(
+        high_count * 20 + medium_count * 10,
+        100
+    )
+
+    control_risk = 100 - compliance_data["score"]
+    resilience_risk = 100 - runway["score"]
+
+    score = (
+        identified_risk_score * 0.35
+        + control_risk * 0.35
+        + resilience_risk * 0.30
+    )
+
+    if score >= 70:
+        level = "CRITICAL"
+    elif score >= 50:
+        level = "HIGH"
+    elif score >= 30:
+        level = "MEDIUM"
+    else:
+        level = "LOW"
+
     return {
-        "score": score * 100,
-        "alert": "Enterprise at risk" if score < 0.5 else None
+        "score": round(score, 2),
+        "level": level,
+        "alert": (
+            "Enterprise risk requires priority attention"
+            if level in ["HIGH", "CRITICAL"]
+            else None
+        )
     }
 
 
-# =============================
-# MAIN
-# =============================
 def run_silo7(data, silo4=None):
     return {
         "liability": liability_risk(data),

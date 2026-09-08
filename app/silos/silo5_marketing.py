@@ -1,202 +1,258 @@
-from typing import Dict, Any, List
+from typing import Dict, Any
 
 
-# =============================
-# RULE 5.1 — SEGMENTATION
-# =============================
+def answer(data: Dict[str, Any], question_id: int, default=""):
+    value = data.get(str(question_id), data.get(question_id, default))
+    return value if value is not None else default
+
+
+def items(data, question_id):
+    value = answer(data, question_id, [])
+
+    if isinstance(value, list):
+        return [str(x).strip() for x in value if str(x).strip()]
+
+    if not value:
+        return []
+
+    return [x.strip() for x in str(value).split(",") if x.strip()]
+
+
+def inbound_score(value):
+    text = str(value or "").replace("–", "-")
+
+    if "0-20" in text:
+        return 10
+    if "20-40" in text:
+        return 30
+    if "40-60" in text:
+        return 50
+    if "60-80" in text:
+        return 70
+    if "80-100" in text:
+        return 90
+
+    return 50
+
+
+def repeat_score(value):
+    text = str(value or "").replace("–", "-")
+
+    if "<25" in text:
+        return 12.5
+    if "25-50" in text:
+        return 37.5
+    if "50-75" in text:
+        return 62.5
+    if ">75" in text:
+        return 87.5
+
+    return 50
+
+
 def segmentation(data):
-    segments = data.get("q4_segments") or []
+    segments = items(data, 33)
     count = len(segments)
 
-    if count <= 3:
-        return {"score": 90, "level": "FOCUSED"}
-    elif count <= 6:
-        return {"score": 70, "level": "MODERATE"}
-    else:
+    if not count:
         return {
-            "score": 40,
-            "level": "FRAGMENTED",
-            "risk": "Resources too thinly spread"
+            "score": None,
+            "level": "UNKNOWN"
         }
 
+    if count <= 3:
+        return {
+            "score": 90,
+            "level": "FOCUSED"
+        }
 
-# =============================
-# RULE 5.2 — TARGETING
-# =============================
+    if count <= 6:
+        return {
+            "score": 70,
+            "level": "MODERATE"
+        }
+
+    return {
+        "score": 40,
+        "level": "FRAGMENTED"
+    }
+
+
 def targeting(data):
-    # Q3a
-    if data.get("q3_primary_target") == "Multiple":
-        clarity = 40
-    else:
-        clarity = 90
+    targets = items(data, 33)
+    objections = items(data, 34)
+    understanding_text = str(answer(data, 35)).strip().lower()
 
-    # Q3b
-    if data.get("q3_objection") == "None":
-        objection = 60
+    if len(targets) <= 3 and targets:
+        target_clarity = 90
+    elif targets:
+        target_clarity = 60
     else:
-        objection = 80
+        target_clarity = 30
 
-    # Q3c
-    understanding_map = {
-        "Very clear": 100,
-        "Somewhat clear": 60,
-        "Unclear": 30,
-        "Not analyzed": 10
+    if "very clear" in understanding_text:
+        understanding = 100
+    elif "somewhat clear" in understanding_text:
+        understanding = 60
+    elif "unclear" in understanding_text:
+        understanding = 30
+    else:
+        understanding = 10
+
+    objection_score = (
+        80
+        if objections
+        else 50
+    )
+
+    score = (
+        target_clarity * 0.45
+        + understanding * 0.4
+        + objection_score * 0.15
+    )
+
+    return {
+        "score": round(score, 2)
     }
 
-    understanding = understanding_map.get(data.get("q3_understanding"), 30)
 
-    score = (clarity * 0.4 + objection * 0.35 + understanding * 0.25)
-
-    return {"score": score}
-
-
-# =============================
-# RULE 5.3 — POSITIONING
-# =============================
 def positioning(data, silo1=None):
-    adv = silo1.get("shared_values", {}).get("score", 50) if silo1 else 50
+    understanding_text = str(answer(data, 35)).strip().lower()
+    advantages = items(data, 2)
+    objections = items(data, 34)
 
-    advantages = data.get("q5_competitive_advantage") or []
-    strength = data.get("q7_strength")
-
-    aligned = strength in advantages
-    alignment_score = 90 if aligned else 50
-
-    if data.get("q3_objection") == "None":
-        objection_score = 70
+    if "very clear" in understanding_text:
+        understanding_score = 100
+    elif "somewhat clear" in understanding_text:
+        understanding_score = 60
+    elif "unclear" in understanding_text:
+        understanding_score = 30
     else:
-        objection_score = 40
+        understanding_score = 10
 
-    score = adv * 0.5 + alignment_score * 0.3 + objection_score * 0.2
+    differentiation_score = 80 if advantages else 30
+
+    objection_penalty = min(len(objections) * 8, 24)
+
+    score = (
+        understanding_score * 0.55
+        + differentiation_score * 0.45
+        - objection_penalty
+    )
+
+    score = max(0, min(100, score))
 
     return {
-        "score": score,
-        "alert": "Weak positioning" if score < 60 else None
+        "score": round(score, 2),
+        "alert": (
+            "Competitive positioning needs clarification"
+            if score < 60
+            else None
+        )
     }
 
 
-# =============================
-# RULE 5.4 — STP ALIGNMENT
-# =============================
 def stp_alignment(seg, tar, pos):
-    avg = (seg["score"] + tar["score"] + pos["score"]) / 3
+    scores = [
+        value["score"]
+        for value in [seg, tar, pos]
+        if value.get("score") is not None
+    ]
+
+    if not scores:
+        return {
+            "score": None,
+            "alert": None
+        }
+
+    score = sum(scores) / len(scores)
 
     return {
-        "score": avg,
-        "alert": "STP Misalignment" if avg < 60 else None
+        "score": round(score, 2),
+        "alert": (
+            "STP alignment is weak"
+            if score < 60
+            else None
+        )
     }
 
 
-# =============================
-# RULE 5.5 — ACQUISITION
-# =============================
 def acquisition(data):
-    channels = (data.get("q5_channels") or []) + (data.get("q6_channels") or [])
-    channel_count = len(channels)
+    inbound = inbound_score(answer(data, 31))
+    social = (
+        100
+        if str(answer(data, 32)).strip() == "Yes"
+        else 0
+    )
 
-    if channel_count <= 4:
-        penalty = 0
-    elif channel_count <= 7:
-        penalty = 0.2
-    else:
-        penalty = 0.5
+    channels = list(
+        dict.fromkeys(
+            items(data, 36) + items(data, 37)
+        )
+    )
 
-    inbound_map = {
-        "0-20": 10,
-        "20-40": 30,
-        "40-60": 50,
-        "60-80": 70,
-        "80-100": 90
+    channel_score = min(len(channels) * 15, 100)
+
+    score = (
+        inbound * 0.45
+        + social * 0.2
+        + channel_score * 0.35
+    )
+
+    return {
+        "score": round(score, 2),
+        "channel_count": len(channels)
     }
 
-    inbound = inbound_map.get(data.get("q1_inbound"), 50)
-    social = 100 if data.get("q2_social") == "Yes" else 0
 
-    score = inbound * 0.4 + social * 0.2 + (100 * (1 - penalty)) * 0.4
-
-    return {"score": score}
-
-
-# =============================
-# RULE 5.6 — LEAD BALANCE
-# =============================
 def lead_balance(data):
-    inbound_map = {
-        "0-20": 10,
-        "20-40": 30,
-        "40-60": 50,
-        "60-80": 70,
-        "80-100": 90
+    score = inbound_score(answer(data, 31))
+
+    if score >= 70:
+        return "INBOUND_DOMINANT"
+
+    if score >= 40:
+        return "BALANCED"
+
+    return "OUTBOUND_DEPENDENT"
+
+
+def channel_alignment(data):
+    # No evidence in the assessment establishes which channel
+    # each customer segment "should" use.
+    return []
+
+
+def objection_analysis(data):
+    objections = items(data, 34)
+
+    if not objections:
+        return {
+            "severity": "UNKNOWN",
+            "reported_objections": []
+        }
+
+    severe_terms = (
+        "lack of trust",
+        "don't see value",
+        "product concerns"
+    )
+
+    severe = any(
+        any(term in value.lower() for term in severe_terms)
+        for value in objections
+    )
+
+    return {
+        "severity": "HIGH" if severe else "MEDIUM",
+        "reported_objections": objections
     }
 
-    midpoint = inbound_map.get(data.get("q1_inbound"), 50)
 
-    if midpoint >= 70:
-        return "INBOUND_DOMINANT"
-    elif midpoint >= 40:
-        return "BALANCED"
-    else:
-        return "OUTBOUND_DEPENDENT"
+def funnel_health(acq, data):
+    retention = repeat_score(answer(data, 38))
 
-
-# =============================
-# RULE 5.7 — CHANNEL ALIGNMENT
-# =============================
-def channel_alignment(data):
-    recommendations = []
-
-    segments = data.get("q4_segments") or []
-    channels = data.get("q6_channels") or []
-
-    for seg in segments:
-        if seg in ["Captains", "HoD"]:
-            expected = ["Networking", "Events"]
-        else:
-            expected = ["Social", "SEO"]
-
-        if not any(ch in channels for ch in expected):
-            recommendations.append(f"Missing channels for {seg}")
-
-    return recommendations
-
-
-# =============================
-# RULE 5.8 — OBJECTION SEVERITY
-# =============================
-def objection_analysis(data):
-    high = ["Price", "Value", "Product"]
-
-    objection = data.get("q3_objection")
-
-    if objection in high:
-        return {"severity": "HIGH"}
-    elif objection == "None":
-        return {"severity": "LOW"}
-    else:
-        return {"severity": "MEDIUM"}
-
-
-# =============================
-# RULE 5.9 — REVENUE SCORE
-# =============================
-def revenue_score(data, silo4=None, silo6=None):
-    recurring = data.get("q3_recurring_revenue", 0)
-    concentration = silo4.get("concentration", {}).get("score", 50) if silo4 else 50
-    repeat = silo6.get("repeat_score", 50) if silo6 else 50
-
-    score = recurring * 0.5 + concentration * 0.3 + repeat * 0.2
-
-    return score
-
-
-# =============================
-# RULE 5.10 — FUNNEL HEALTH
-# =============================
-def funnel_health(acq, silo6=None, revenue=50):
-    retention = silo6.get("repeat_score", 50) if silo6 else 50
-
-    if acq >= 70 and retention >= 70 and revenue >= 70:
+    if acq >= 70 and retention >= 70:
         return "STRONG"
 
     if acq < 40 or retention < 40:
@@ -205,35 +261,28 @@ def funnel_health(acq, silo6=None, revenue=50):
     return "MODERATE"
 
 
-# =============================
-# MAIN
-# =============================
 def run_silo5(data, silo1=None, silo4=None, silo6=None):
-
     seg = segmentation(data)
     tar = targeting(data)
     pos = positioning(data, silo1)
 
-    stp = stp_alignment(seg, tar, pos)
-
-    acq = acquisition(data)
-    lead = lead_balance(data)
-    channel = channel_alignment(data)
-    objection = objection_analysis(data)
-
-    rev = revenue_score(data, silo4, silo6)
-
-    funnel = funnel_health(acq["score"], silo6, rev)
+    acquisition_data = acquisition(data)
 
     return {
         "segmentation": seg,
         "targeting": tar,
         "positioning": pos,
-        "stp": stp,
-        "acquisition": acq,
-        "lead_balance": lead,
-        "channel_alignment": channel,
-        "objection": objection,
-        "revenue_score": rev,
-        "funnel": funnel
+        "stp": stp_alignment(seg, tar, pos),
+        "acquisition": acquisition_data,
+        "lead_balance": lead_balance(data),
+        "channel_alignment": channel_alignment(data),
+        "objection": objection_analysis(data),
+
+        # The assessment doesn't provide sales revenue values.
+        "revenue_score": None,
+
+        "funnel": funnel_health(
+            acquisition_data["score"],
+            data
+        )
     }

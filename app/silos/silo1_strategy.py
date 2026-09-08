@@ -1,91 +1,140 @@
 from typing import Dict, Any
 
-# =============================
-# RULE 1.1 — STRATEGIC CLARITY
-# =============================
-def strategic_clarity(data: Dict[str, Any]):
-    if data.get("q10_written_strategy") == "Yes" and data.get("q9_employee_understanding") in ["Yes", "Some"]:
+
+def answer(data: Dict[str, Any], question_id: int, default=""):
+    value = data.get(str(question_id), data.get(question_id, default))
+    return value if value is not None else default
+
+
+def items(data: Dict[str, Any], question_id: int):
+    value = answer(data, question_id, [])
+
+    if isinstance(value, list):
+        return [str(x).strip() for x in value if str(x).strip()]
+
+    if not value:
+        return []
+
+    return [
+        x.strip()
+        for x in str(value).split(",")
+        if x.strip()
+    ]
+
+
+def range_midpoint(value, default=0):
+    text = str(value or "").strip().replace("–", "-")
+
+    mapping = {
+        "0-10%": 5,
+        "10-20%": 15,
+        "20-30%": 25,
+        "30-40%": 35,
+        "40-50%": 45,
+        "50-60%": 55,
+        "60-70%": 65,
+        "70-80%": 75,
+        "80-90%": 85,
+        "90-100%": 95,
+    }
+
+    return mapping.get(text, default)
+
+
+def numeric_choice(value, default=0):
+    text = str(value or "").strip()
+
+    try:
+        return int(text.split()[0])
+    except Exception:
+        return default
+
+
+def strategic_clarity(data):
+    employee_understanding = str(answer(data, 10)).strip()
+    written_strategy = str(answer(data, 11)).strip()
+
+    if written_strategy == "Yes" and employee_understanding == "Yes":
         return {
             "level": "HIGH",
             "score": 90,
-            "insight": "Clear documented strategy with team alignment"
+            "insight": "Documented strategy with clear employee understanding"
         }
 
-    if data.get("q10_written_strategy") == "No" and data.get("q9_employee_understanding") == "No":
+    if written_strategy == "No" and employee_understanding == "No":
         return {
             "level": "CRITICAL",
             "score": 20,
-            "alert": "Major misalignment — no strategy and no team alignment"
+            "alert": "No written strategy and employees do not understand company direction"
+        }
+
+    if written_strategy == "No":
+        return {
+            "level": "MEDIUM",
+            "score": 50,
+            "insight": "Strategic direction exists without a written strategy"
         }
 
     return {
         "level": "MEDIUM",
-        "score": 60,
-        "insight": "Partial clarity — strategy or alignment is incomplete"
+        "score": 65,
+        "insight": "Strategy exists but company-wide understanding is incomplete"
     }
 
 
-# =============================
-# RULE 1.2 — SHARED VALUES
-# =============================
-STRONG_DEFENSIBLE = [
-    "Specialized expertise/knowledge",
-    "Unique product/service offering",
-    "Established relationships/network",
-    "Technology/digital capabilities",
-    "Brand reputation/heritage",
-    "Superior quality/craftsmanship"
-]
+def shared_values(data):
+    advantages = items(data, 2)
 
-COMMODITY = [
-    "Lower pricing than competitors",
-    "Faster delivery/responsiveness",
-    "Better customer service/support",
-    "Geographic convenience/location"
-]
-
-NO_ADVANTAGE = "We don't have a clear competitive advantage"
-
-
-def shared_values(data: Dict[str, Any]):
-    selections = data.get("q5_competitive_advantage", [])
-
-    if NO_ADVANTAGE in selections:
+    if not advantages:
         return {
-            "score": 10,
-            "strength": "WEAK",
-            "insight": "No competitive differentiation identified"
+            "score": None,
+            "strength": "UNKNOWN",
+            "insight": "No competitive advantage evidence supplied"
         }
 
-    strong = [s for s in selections if s in STRONG_DEFENSIBLE]
-    commodity = [s for s in selections if s in COMMODITY]
+    no_advantage = any(
+        "no clear advantage" in x.lower()
+        or "don't have a clear competitive advantage" in x.lower()
+        for x in advantages
+    )
 
-    if len(strong) == 1 and not commodity:
-        score = 90
-        insight = "Clear and focused competitive advantage — strong shared values"
+    if no_advantage:
+        return {
+            "score": 20,
+            "strength": "WEAK",
+            "insight": "No clear competitive differentiation identified"
+        }
 
-    elif 2 <= len(strong) <= 3 and not commodity:
-        score = 70
-        insight = "Multiple strong differentiators — good but risk of being unfocused"
+    defensible_terms = (
+        "expertise",
+        "quality",
+        "technology",
+        "unique",
+        "network",
+        "reputation",
+        "brand"
+    )
 
-    elif commodity and not strong:
-        score = 50
-        insight = "Competitive advantages are easy for competitors to replicate"
+    defensible_count = sum(
+        1
+        for value in advantages
+        if any(term in value.lower() for term in defensible_terms)
+    )
 
-    elif strong and commodity:
-        score = 65
-        insight = "Strong differentiators diluted by commodity advantages"
-
-    else:
-        score = 50
-        insight = "Unclear competitive positioning"
-
-    if score >= 70 and data.get("q9_employee_understanding") == "Yes":
+    if defensible_count >= 2:
+        score = 80
         strength = "STRONG"
-    elif score >= 70:
+        insight = "Multiple defensible competitive strengths are identified"
+
+    elif defensible_count == 1:
+        score = 70
         strength = "MODERATE"
+        insight = "At least one defensible competitive strength is identified"
+
     else:
-        strength = "WEAK"
+        score = 55
+        strength = "MODERATE"
+        insight = "Competitive advantages are identified but differentiation may be easier to replicate"
 
     return {
         "score": score,
@@ -94,205 +143,155 @@ def shared_values(data: Dict[str, Any]):
     }
 
 
-# =============================
-# RULE 1.3 — STAFF ALIGNMENT
-# =============================
-def staff_alignment(data: Dict[str, Any]):
+def staff_alignment(data):
+    understanding = str(answer(data, 10)).strip()
+    admin_percent = range_midpoint(answer(data, 8))
+    dependency = str(answer(data, 13)).strip().lower()
+
     score = 0
 
-    if data.get("q9_employee_understanding") == "Yes":
+    if understanding == "Yes":
         score += 40
-    elif data.get("q9_employee_understanding") == "Some":
+    elif understanding == "Some":
         score += 20
 
-    if data.get("q7_admin_percent", 0) < 30:
+    if admin_percent and admin_percent < 30:
         score += 30
-    elif data.get("q7_admin_percent", 0) < 50:
+    elif admin_percent and admin_percent < 50:
         score += 15
 
-    if data.get("q12_owner_dependency") == "No":
+    if "fully autonomous" in dependency:
         score += 30
-    elif data.get("q12_owner_dependency") == "Some":
-        score += 15
+    elif "minor friction" in dependency:
+        score += 20
 
     return {
         "score": score,
-        "status": "STRONG" if score >= 70 else "WEAK"
+        "status": (
+            "STRONG"
+            if score >= 70
+            else "MODERATE"
+            if score >= 50
+            else "WEAK"
+        )
     }
 
 
-# =============================
-# RULE 1.4 — SYSTEMS
-# =============================
-def systems_efficiency(data: Dict[str, Any]):
-    if data.get("q8_duplication") == "A lot":
-        return 50
-    elif data.get("q8_duplication") == "Some":
-        return 75
-    return 100
+def systems_efficiency(data):
+    duplication = str(answer(data, 9)).strip()
+
+    if duplication == "A lot":
+        return 40
+
+    if duplication == "Some":
+        return 70
+
+    if duplication == "None":
+        return 100
+
+    return None
 
 
-# =============================
-# RULE 1.5 — SWOT STRENGTHS
-# =============================
-def swot_strengths(data: Dict[str, Any], silo6=None):
-    strengths = []
+def swot_strengths(data):
+    result = []
 
-    strengths.append(data.get("q5_competitive_advantage"))
-    strengths.append(data.get("q7_strength"))
+    for value in items(data, 3) + items(data, 2):
+        if value not in result:
+            result.append(value)
 
-    if data.get("q6_growth_confidence", 0) >= 4:
-        strengths.append("Strong market position confidence")
+    if numeric_choice(answer(data, 7)) >= 4:
+        result.append("High confidence in sustainable growth")
 
-    if silo6:
-        if data.get("q7_strength") == "Our customer relationships" and silo6.get("repeat_pct", 0) >= 75:
-            strengths.append("Strong customer loyalty")
-
-        if data.get("q7_strength") == "Our reputation/brand" and silo6.get("referral_freq", 0) >= 4:
-            strengths.append("Strong brand advocacy")
-
-    return strengths
+    return result
 
 
-# =============================
-# RULE 1.6 — SWOT WEAKNESSES
-# =============================
-CHALLENGE_MAP = {
-    "Finding and retaining good people": "Talent acquisition and retention weakness",
-    "Managing cash flow": "Cash flow management weakness",
-    "Operational inefficiencies/waste": "Operational inefficiency",
-    "Lack of time for strategic work": "Leadership capacity constraint",
-    "Regulatory/compliance requirements": "Compliance capability gap",
-    "Generating consistent revenue/sales": "Revenue consistency weakness"
-}
+def swot_weaknesses(data):
+    result = []
+
+    for value in items(data, 4):
+        if "no significant bottleneck" not in value.lower():
+            result.append(value)
+
+    for value in items(data, 6):
+        if value not in result:
+            result.append(value)
+
+    if str(answer(data, 11)).strip() == "No":
+        result.append("No written business strategy or growth plan")
+
+    dependency = str(answer(data, 13)).lower()
+
+    if "heavily owner-dependent" in dependency:
+        result.append("Heavy dependency on the owner or key leader")
+
+    return result
 
 
-def swot_weaknesses(data: Dict[str, Any]):
-    weaknesses = []
+def swot_opportunities(data):
+    result = list(items(data, 12))
 
-    if data.get("q7_admin_percent", 0) > 50:
-        weaknesses.append("High administrative burden")
+    admin_percent = range_midpoint(answer(data, 8))
 
-    if data.get("q8_duplication") == "A lot":
-        weaknesses.append("Process duplication")
+    if admin_percent > 40:
+        result.append(
+            "Potential to release leadership capacity through process improvement or automation"
+        )
 
-    if data.get("q10_written_strategy") == "No":
-        weaknesses.append("Lack of strategic documentation")
-
-    if data.get("q12_owner_dependency") == "Yes":
-        weaknesses.append("Owner dependency risk")
-
-    challenge = data.get("q9_biggest_challenge")
-
-    if challenge in CHALLENGE_MAP:
-        weaknesses.append(CHALLENGE_MAP[challenge])
-    elif challenge:
-        weaknesses.append(challenge)
-
-    return weaknesses
+    return result
 
 
-# =============================
-# RULE 1.7 — SWOT OPPORTUNITIES
-# =============================
-OPPORTUNITY_MAP = {
-    "Expanding to new customer segments": "Market expansion opportunity",
-    "New product/service offerings": "Product/service diversification",
-    "Improving customer retention/upselling": "Revenue expansion from existing customers",
-    "Digital marketing/online presence": "Digital channel growth",
-    "Strategic partnerships/alliances": "Partnership-driven growth",
-    "Technology/automation adoption": "Operational leverage through technology",
-    "Developing recurring revenue streams": "Business model transformation to recurring revenue"
-}
-
-
-def swot_opportunities(data: Dict[str, Any]):
-    ops = []
-
-    for o in data.get("q11_growth_opportunities", []):
-        ops.append(OPPORTUNITY_MAP.get(o, o))
-
-    if data.get("q7_admin_percent", 0) > 40:
-        ops.append("High ROI opportunity from automation")
-
-    return ops
-
-
-# =============================
-# RULE 1.8 — SWOT THREATS
-# =============================
-def swot_threats(data: Dict[str, Any]):
+def swot_threats(data):
     threats = []
 
-    threats.extend(data.get("q3_competitors", []))
+    if str(answer(data, 10)).strip() == "No":
+        threats.append(
+            "Employees do not understand the company's goals and direction"
+        )
 
-    if data.get("q9_employee_understanding") == "No":
-        threats.append("Strategic misalignment threatening execution")
+    if "heavily owner-dependent" in str(answer(data, 13)).lower():
+        threats.append(
+            "Business continuity depends heavily on the owner or key leader"
+        )
 
-    if data.get("q12_owner_dependency") == "Yes":
-        threats.append("Succession crisis risk")
+    severity = str(answer(data, 5)).lower()
+
+    if "critical" in severity or "major" in severity:
+        threats.append(
+            "The reported primary operational bottleneck has a major business impact"
+        )
 
     return threats
 
 
-# =============================
-# RULE 1.9 — 7S ALIGNMENT
-# =============================
-def seven_s_alignment(data: Dict[str, Any], silo2=None, silo3=None):
-    scores = []
-
-    scores.append(90 if data.get("q10_written_strategy") == "Yes" else 40)
-    scores.append(systems_efficiency(data))
-    scores.append(shared_values(data)["score"])
-    scores.append(staff_alignment(data)["score"])
-
-    scores.append(silo3.get("structure", 60) if silo3 else 60)
-    scores.append(40 if data.get("q9_employee_understanding") == "No" else 70)
-    scores.append(silo2.get("skills", 60) if silo2 else 60)
-
-    avg = sum(scores) / len(scores)
-
-    return {
-        "score": avg,
-        "alert": "Critical 7S Misalignment Detected" if avg < 60 else None
-    }
+def seven_s_alignment(data, silo2=None, silo3=None):
+    # Do not manufacture a McKinsey 7S score without all seven dimensions.
+    return None
 
 
-# =============================
-# RULE 1.10 — GROWTH CHECK
-# =============================
-def growth_check(data: Dict[str, Any], silo7=None):
+def growth_check(data, silo7=None):
     warnings = []
 
-    if data.get("q6_growth_confidence", 0) >= 4:
+    confidence = numeric_choice(answer(data, 7))
 
-        if data.get("q10_written_strategy") == "No":
-            warnings.append("Growth confidence not supported by strategy")
+    if confidence >= 4:
+        if str(answer(data, 11)).strip() == "No":
+            warnings.append(
+                "High growth confidence is not supported by a written strategy"
+            )
 
-        if data.get("q9_employee_understanding") == "No":
-            warnings.append("Team not aligned with growth strategy")
+        if str(answer(data, 10)).strip() == "No":
+            warnings.append(
+                "Growth ambition may be constrained by weak employee alignment"
+            )
 
-        if data.get("q12_owner_dependency") == "Yes":
-            warnings.append("Owner dependency limits scalability")
-
-    capital_intensive = [
-        "Geographic expansion",
-        "Acquiring competitors/businesses",
-        "New product/service offerings"
-    ]
-
-    if silo7:
-        runway = silo7.get("runway_months", 12)
-
-        if any(x in data.get("q11_growth_opportunities", []) for x in capital_intensive) and runway < 6:
-            warnings.append("Growth strategy requires capital not currently available")
+        if "heavily owner-dependent" in str(answer(data, 13)).lower():
+            warnings.append(
+                "Owner dependency may constrain scalability"
+            )
 
     return warnings
 
 
-# =============================
-# MAIN
-# =============================
 def run_silo1(data, silo2=None, silo3=None, silo6=None, silo7=None):
     return {
         "strategic_clarity": strategic_clarity(data),
@@ -300,7 +299,7 @@ def run_silo1(data, silo2=None, silo3=None, silo6=None, silo7=None):
         "staff_alignment": staff_alignment(data),
         "systems_efficiency": systems_efficiency(data),
         "swot": {
-            "strengths": swot_strengths(data, silo6),
+            "strengths": swot_strengths(data),
             "weaknesses": swot_weaknesses(data),
             "opportunities": swot_opportunities(data),
             "threats": swot_threats(data)

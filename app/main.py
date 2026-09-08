@@ -265,6 +265,19 @@ def submit_answers(
             for row in (all_answers_res.data or [])
         }
 
+        print(
+            "PULSE ANSWERS BEFORE ANALYSIS:",
+            {
+                "q8": all_answers.get("8"),
+                "q10": all_answers.get("10"),
+                "q11": all_answers.get("11"),
+                "q18": all_answers.get("18"),
+                "q20": all_answers.get("20"),
+                "q38": all_answers.get("38"),
+                "q48": all_answers.get("48"),
+            }
+        )
+
         # 3. Try analysis, but do NOT fail answer saving if analysis fails
         analysis = None
         analysis_error = None

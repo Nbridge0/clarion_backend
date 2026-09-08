@@ -376,10 +376,18 @@ def answer_lower(
     answers: Dict[str, Any],
     question_id: int
 ) -> str:
-    return answer_text(
-        answers,
-        question_id
-    ).lower()
+    return (
+        answer_text(
+            answers,
+            question_id
+        )
+        .lower()
+        .replace("–", "-")
+        .replace("—", "-")
+        .replace("_", "-")
+        .replace("on-boarding", "onboarding")
+        .strip()
+    )
 
 
 def make_rule_result(

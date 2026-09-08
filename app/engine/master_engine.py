@@ -162,63 +162,87 @@ SILO_EVIDENCE_QUESTION_IDS = {
 QUESTION_UPDATE_SILO_IDS = {
 
     "strategy": {
-        # Direct Strategy evidence
+        # Direct Strategy
         1, 2, 3, 4, 5, 6, 7,
         8, 9, 10, 11, 12, 13,
 
-        # Rule 3.9 — SOP coverage affects Strategy systems
+        # Rule 3.9
         21,
 
-        # CS.22 — team capacity can constrain growth strategy
-        14, 18
+        # CS.22
+        14, 18,
+
+        # Finance Rule 4.2
+        28
     },
 
     "people": {
-        # Direct People evidence
+        # Direct People
         10,
         14, 15, 16, 17, 18, 19, 20,
 
-        # Rule 3.9 — SOP coverage caps accountability
+        # Rule 3.9
         21
     },
 
     "operations": {
-        # Direct Operations evidence
+        # Direct Operations
         4, 5, 8, 9, 10, 11,
-        21, 22, 23, 24, 25, 26, 27, 29
+        21, 22, 23, 24, 25, 26, 27, 29,
+
+        # CS.4 — turnover affects process stability
+        18
     },
 
     "financial": {
-        # Direct Financial evidence
-        28, 29, 30, 48
+        # Direct Financial
+        28, 29, 30, 48,
+
+        # Rule 4.6
+        8, 21,
+
+        # Rules 4.7 / 4.8
+        14, 22, 23, 24, 26,
+
+        # CS.6
+        5, 9, 18
     },
 
     "marketing": {
-        # Direct Marketing evidence
+        # Direct Marketing
         2,
         31, 32, 33, 34, 35, 36, 37, 38,
 
-        # CS.22 — team-capacity / sales-scalability rules
-        12, 14, 18, 20
+        # CS.22
+        12, 14, 18, 20,
+
+        # Finance Rule 4.2
+        28
     },
 
     "service": {
-        # Direct Service evidence
+        # Direct Service
         20,
         38, 39, 40, 41, 42,
 
-        # Rule 3.9 — SOP coverage affects service consistency
-        21
+        # Rule 3.9
+        21,
+
+        # CS.4
+        18
     },
 
     "risk": {
-        # Direct Risk evidence
+        # Existing direct/cross risk dependencies
         13, 18, 20, 27,
-        28, 29, 30, 38, 40,
-        43, 44, 45, 46, 47, 48
+        28, 29, 30,
+        38, 39, 40,
+        43, 44, 45, 46, 47, 48,
+
+        # ISO 31000 outbound-sales risk
+        31
     }
 }
-
 
 # =========================================================
 # INCREMENTAL ANALYSIS HELPERS
@@ -389,7 +413,6 @@ def answer_lower(
         .strip()
     )
 
-
 def make_rule_result(
     *,
     rule_id: str,
@@ -415,7 +438,841 @@ def make_rule_result(
         "confidence": confidence
     }
 
+def add_rule(
+    results: Dict[str, List[Dict[str, Any]]],
+    *,
+    silo: str,
+    rule_id: str,
+    title: str,
+    analysis: str,
+    evidence_question_ids: List[int],
+    recommendations: List[str] | None = None,
+    classification: str | None = None,
+    kind: str = "rule",
+    confidence: str = "high"
+):
+    results[silo].append(
+        make_rule_result(
+            rule_id=rule_id,
+            silo=silo,
+            title=title,
+            analysis=analysis,
+            evidence_question_ids=list(
+                dict.fromkeys(
+                    evidence_question_ids
+                )
+            ),
+            recommendations=(
+                recommendations
+                or []
+            ),
+            classification=classification,
+            kind=kind,
+            confidence=confidence
+        )
+    )
 
+def answer_items(
+    answers: Dict[str, Any],
+    question_id: int
+) -> List[str]:
+
+    value = get_answer(
+        answers,
+        question_id
+    )
+
+    if isinstance(
+        value,
+        list
+    ):
+        raw_items = value
+
+    else:
+        raw_items = str(
+            value or ""
+        ).split(",")
+
+    return [
+        str(item).strip()
+        for item in raw_items
+        if str(
+            item or ""
+        ).strip()
+    ]
+
+
+def contains_any(
+    text: str,
+    values
+) -> bool:
+
+    text = str(
+        text or ""
+    ).lower()
+
+    return any(
+        str(value).lower()
+        in text
+        for value in values
+    )
+
+
+def numeric_score(
+    answers: Dict[str, Any],
+    question_id: int
+):
+
+    try:
+        return float(
+            answer_text(
+                answers,
+                question_id
+            )
+        )
+    except Exception:
+        return None
+
+
+def percentage_midpoint(
+    value: str
+):
+
+    text = (
+        str(value or "")
+        .lower()
+        .replace("–", "-")
+        .replace("—", "-")
+        .replace("%", "")
+        .strip()
+    )
+
+    mappings = {
+        "0-20": 10.0,
+        "5-15": 10.0,
+        "10-25": 17.5,
+        "15-25": 20.0,
+        "20-40": 30.0,
+        "25-50": 37.5,
+        "40-60": 50.0,
+        "50-75": 62.5,
+        "60-80": 70.0,
+        "75-100": 87.5,
+        "80-100": 90.0
+    }
+
+    for key, midpoint in mappings.items():
+        if key in text:
+            return midpoint
+
+    if (
+        "<5" in text
+        or "under 5" in text
+    ):
+        return 2.5
+
+    if (
+        "<10" in text
+        or "under 10" in text
+    ):
+        return 5.0
+
+    if (
+        "<25" in text
+        or "under 25" in text
+    ):
+        return 12.5
+
+    if (
+        ">75" in text
+        or "over 75" in text
+    ):
+        return 87.5
+
+    return None
+
+
+def employee_count_upper_bound(
+    answers: Dict[str, Any]
+):
+
+    value = answer_lower(
+        answers,
+        14
+    )
+
+    ranges = {
+        "0-5": 5,
+        "6-10": 10,
+        "10-25": 25,
+        "11-25": 25,
+        "25-50": 50,
+        "26-50": 50,
+        "50+": 9999,
+        "over 50": 9999
+    }
+
+    for key, upper in ranges.items():
+        if key in value:
+            return upper
+
+    return None
+
+def calculate_official_metrics(
+    answers: Dict[str, Any]
+) -> Dict[str, Any]:
+
+    metrics = {}
+
+
+    # =====================================================
+    # NORMALISED SOURCE ANSWERS
+    # =====================================================
+
+    metrics["written_strategy"] = answer_lower(
+        answers,
+        11
+    )
+
+    metrics["goal_understanding"] = answer_lower(
+        answers,
+        10
+    )
+
+    metrics["admin_time"] = percentage_midpoint(
+        answer_lower(
+            answers,
+            8
+        )
+    )
+
+    metrics["duplication"] = answer_lower(
+        answers,
+        9
+    )
+
+    metrics["owner_independence"] = answer_lower(
+        answers,
+        13
+    )
+
+    metrics["growth_confidence"] = numeric_score(
+        answers,
+        7
+    )
+
+    metrics["turnover"] = percentage_midpoint(
+        answer_lower(
+            answers,
+            18
+        )
+    )
+
+    metrics["knowledge_concentration"] = (
+        percentage_midpoint(
+            answer_lower(
+                answers,
+                20
+            )
+        )
+    )
+
+    metrics["repeat_customer_midpoint"] = (
+        percentage_midpoint(
+            answer_lower(
+                answers,
+                38
+            )
+        )
+    )
+
+    metrics["inbound_midpoint"] = (
+        percentage_midpoint(
+            answer_lower(
+                answers,
+                31
+            )
+        )
+    )
+
+    metrics["recurring_midpoint"] = (
+        percentage_midpoint(
+            answer_lower(
+                answers,
+                30
+            )
+        )
+    )
+
+    metrics["revenue_concentration_midpoint"] = (
+        percentage_midpoint(
+            answer_lower(
+                answers,
+                28
+            )
+        )
+    )
+
+    metrics["quality_score"] = numeric_score(
+        answers,
+        39
+    )
+
+    metrics["referral_score"] = numeric_score(
+        answers,
+        40
+    )
+
+
+    # =====================================================
+    # OPERATIONS — RULE 3.1 DIGITAL INTENSITY
+    # =====================================================
+
+    software = answer_lower(
+        answers,
+        22
+    )
+
+    automation = answer_lower(
+        answers,
+        23
+    )
+
+    ai_experimentation = answer_lower(
+        answers,
+        24
+    )
+
+    readiness = numeric_score(
+        answers,
+        26
+    )
+
+    software_score = None
+
+    if software == "yes":
+        software_score = 100
+
+    elif "some" in software:
+        software_score = 60
+
+    elif "not enough" in software:
+        software_score = 40
+
+    elif software in {
+        "none",
+        "no"
+    }:
+        software_score = 0
+
+
+    automation_score = (
+        100
+        if automation == "yes"
+        else 0
+        if automation == "no"
+        else None
+    )
+
+    ai_score = (
+        100
+        if ai_experimentation == "yes"
+        else 0
+        if ai_experimentation == "no"
+        else None
+    )
+
+    readiness_score = (
+        readiness * 10
+        if readiness is not None
+        else None
+    )
+
+    digital_components = [
+        software_score,
+        automation_score,
+        ai_score,
+        readiness_score
+    ]
+
+    if all(
+        component is not None
+        for component in digital_components
+    ):
+        metrics["digital_intensity"] = (
+            sum(
+                digital_components
+            )
+            / len(
+                digital_components
+            )
+        )
+
+    else:
+        metrics["digital_intensity"] = None
+
+
+    # =====================================================
+    # OPERATIONS — RULE 3.2 TRANSFORMATION MANAGEMENT
+    # =====================================================
+
+    sop = answer_lower(
+        answers,
+        21
+    )
+
+    if (
+        "all" in sop
+        and "some" not in sop
+    ):
+        sop_score = 100
+
+    elif "most" in sop:
+        sop_score = 75
+
+    elif "some" in sop:
+        sop_score = 40
+
+    elif sop == "no":
+        sop_score = 0
+
+    else:
+        sop_score = None
+
+
+    strategy_score = (
+        100
+        if metrics[
+            "written_strategy"
+        ] == "yes"
+        else 0
+        if metrics[
+            "written_strategy"
+        ] == "no"
+        else None
+    )
+
+    if metrics[
+        "goal_understanding"
+    ] == "yes":
+        goal_score = 100
+
+    elif metrics[
+        "goal_understanding"
+    ] == "some":
+        goal_score = 60
+
+    elif metrics[
+        "goal_understanding"
+    ] == "no":
+        goal_score = 0
+
+    else:
+        goal_score = None
+
+
+    transformation_parts = [
+        sop_score,
+        strategy_score,
+        goal_score
+    ]
+
+    if all(
+        part is not None
+        for part in transformation_parts
+    ):
+        metrics[
+            "transformation_management"
+        ] = (
+            sum(
+                transformation_parts
+            )
+            / 3
+        )
+
+    else:
+        metrics[
+            "transformation_management"
+        ] = None
+
+
+    # =====================================================
+    # RULE 3.3 MIT DIGITAL MATURITY
+    # =====================================================
+
+    digital = metrics.get(
+        "digital_intensity"
+    )
+
+    transformation = metrics.get(
+        "transformation_management"
+    )
+
+    quadrant = None
+
+    if (
+        digital is not None
+        and transformation is not None
+    ):
+
+        if (
+            digital >= 60
+            and transformation >= 60
+        ):
+            quadrant = "DIGIRATI"
+
+        elif (
+            digital >= 60
+            and transformation < 60
+        ):
+            quadrant = "FASHIONISTA"
+
+        elif (
+            digital < 60
+            and transformation >= 60
+        ):
+            quadrant = "CONSERVATIVE"
+
+        else:
+            quadrant = "BEGINNER"
+
+    metrics[
+        "digital_maturity_quadrant"
+    ] = quadrant
+
+
+    # =====================================================
+    # FINANCE — RULE 4.1 DIVERSIFICATION SCORE
+    # =====================================================
+
+    concentration = metrics.get(
+        "revenue_concentration_midpoint"
+    )
+
+    diversification_score = None
+    concentration_classification = None
+
+    if concentration is not None:
+
+        if concentration >= 75:
+            diversification_score = 10
+            concentration_classification = "CRITICAL"
+
+        elif concentration >= 50:
+            diversification_score = 30
+            concentration_classification = "HIGH"
+
+        elif concentration >= 25:
+            diversification_score = 50
+            concentration_classification = "MODERATE"
+
+        elif concentration >= 15:
+            diversification_score = 80
+            concentration_classification = "LOW"
+
+        else:
+            diversification_score = 100
+            concentration_classification = "LOW"
+
+    metrics[
+        "diversification_score"
+    ] = diversification_score
+
+    metrics[
+        "revenue_concentration_classification"
+    ] = concentration_classification
+
+
+    # =====================================================
+    # FINANCE — RULE 4.3 BUSINESS MODEL
+    # =====================================================
+
+    recurring = metrics.get(
+        "recurring_midpoint"
+    )
+
+    if recurring is None:
+        business_model = None
+        predictability = None
+
+    elif recurring >= 75:
+        business_model = "SUBSCRIPTION"
+        predictability = "HIGH"
+
+    elif recurring >= 25:
+        business_model = "HYBRID"
+        predictability = "MEDIUM"
+
+    else:
+        business_model = "PROJECT-BASED"
+        predictability = "LOW"
+
+    metrics[
+        "business_model"
+    ] = business_model
+
+    metrics[
+        "revenue_predictability"
+    ] = predictability
+
+
+    # =====================================================
+    # FINANCE — RULE 4.4 CCC
+    # =====================================================
+
+    dso = None
+
+    if business_model == "SUBSCRIPTION":
+        dso = 15
+
+    elif business_model == "HYBRID":
+        dso = 45
+
+    elif business_model == "PROJECT-BASED":
+        dso = 60
+
+    if (
+        dso is not None
+        and answer_lower(
+            answers,
+            29
+        ) == "yes"
+    ):
+        dso *= 1.20
+
+    if dso is not None:
+
+        dio = 0
+        dpo = 30
+
+        metrics["ccc_days"] = (
+            dio
+            + dso
+            - dpo
+        )
+
+    else:
+        metrics["ccc_days"] = None
+
+
+    ccc = metrics.get(
+        "ccc_days"
+    )
+
+    if ccc is None:
+        cash_efficiency = None
+        cash_efficiency_score = None
+
+    elif ccc <= 20:
+        cash_efficiency = "EXCELLENT"
+        cash_efficiency_score = 100
+
+    elif ccc <= 40:
+        cash_efficiency = "GOOD"
+        cash_efficiency_score = 75
+
+    elif ccc <= 60:
+        cash_efficiency = "POOR"
+        cash_efficiency_score = 50
+
+    else:
+        cash_efficiency = "CRITICAL"
+        cash_efficiency_score = 25
+
+    metrics[
+        "cash_efficiency"
+    ] = cash_efficiency
+
+    metrics[
+        "cash_efficiency_score"
+    ] = cash_efficiency_score
+
+
+    # =====================================================
+    # FINANCE — RULE 4.6 NET PROFIT MARGIN ESTIMATE
+    # =====================================================
+
+    estimated_npm = 15.0
+
+    if answer_lower(
+        answers,
+        29
+    ) == "yes":
+        estimated_npm *= 0.85
+
+    if (
+        metrics.get(
+            "admin_time"
+        )
+        is not None
+        and metrics[
+            "admin_time"
+        ] > 50
+    ):
+        estimated_npm *= 0.90
+
+    if (
+        sop_score is not None
+        and sop_score <= 40
+    ):
+        estimated_npm *= 0.92
+
+    metrics[
+        "estimated_net_profit_margin"
+    ] = estimated_npm
+
+
+    # =====================================================
+    # FINANCE — RULE 4.7 ASSET TURNOVER
+    # =====================================================
+
+    estimated_asset_turnover = 2.0
+
+    employee_upper = employee_count_upper_bound(
+        answers
+    )
+
+    if (
+        employee_upper is not None
+        and employee_upper > 50
+    ):
+        estimated_asset_turnover *= 0.9
+
+    if (
+        digital is not None
+        and digital >= 70
+    ):
+        estimated_asset_turnover *= 1.1
+
+    metrics[
+        "estimated_asset_turnover"
+    ] = estimated_asset_turnover
+
+
+    # =====================================================
+    # FINANCE — RULE 4.8 ROE
+    # =====================================================
+
+    estimated_leverage = 1.5
+
+    metrics[
+        "estimated_financial_leverage"
+    ] = estimated_leverage
+
+    metrics[
+        "estimated_roe"
+    ] = (
+        estimated_npm
+        / 100
+        * estimated_asset_turnover
+        * estimated_leverage
+        * 100
+    )
+
+
+    # =====================================================
+    # MARKETING — 5.1 SEGMENTATION
+    # =====================================================
+
+    target_segments = answer_items(
+        answers,
+        33
+    )
+
+    segment_count = len(
+        target_segments
+    )
+
+    if 1 <= segment_count <= 3:
+        segmentation_score = 90
+        segmentation_classification = "FOCUSED"
+
+    elif 4 <= segment_count <= 6:
+        segmentation_score = 70
+        segmentation_classification = "MODERATE"
+
+    elif segment_count >= 7:
+        segmentation_score = 40
+        segmentation_classification = "FRAGMENTED"
+
+    else:
+        segmentation_score = None
+        segmentation_classification = None
+
+    metrics[
+        "segmentation_score"
+    ] = segmentation_score
+
+    metrics[
+        "segmentation_classification"
+    ] = segmentation_classification
+
+
+    # =====================================================
+    # SERVICE — RETENTION SCORE
+    # =====================================================
+
+    repeat_mid = metrics.get(
+        "repeat_customer_midpoint"
+    )
+
+    if repeat_mid is None:
+        retention_score = None
+
+    else:
+        retention_score = repeat_mid
+
+    metrics[
+        "retention_score"
+    ] = retention_score
+
+
+    # =====================================================
+    # SERVICE — RULE 6.10 ESTIMATED NPS
+    # =====================================================
+
+    quality = metrics.get(
+        "quality_score"
+    )
+
+    referral = metrics.get(
+        "referral_score"
+    )
+
+    if (
+        quality is not None
+        and referral is not None
+    ):
+        promoter = (
+            referral
+            / 5
+            * 100
+        )
+
+        detractor = (
+            (
+                5
+                - quality
+            )
+            / 5
+            * 30
+        )
+
+        metrics[
+            "estimated_nps"
+        ] = (
+            promoter
+            - detractor
+        )
+
+    else:
+        metrics[
+            "estimated_nps"
+        ] = None
+
+
+    return metrics
+    
 def evaluate_official_ontology_rules(
     answers: Dict[str, Any]
 ) -> Dict[str, List[Dict[str, Any]]]:
@@ -432,6 +1289,10 @@ def evaluate_official_ontology_rules(
         silo_name: []
         for silo_name in SILO_EVIDENCE_QUESTION_IDS.keys()
     }
+
+    metrics = calculate_official_metrics(
+        answers
+    )
 
 
     # =====================================================
@@ -736,8 +1597,7 @@ def evaluate_official_ontology_rules(
 
 
     # =====================================================
-    # OPERATIONS — VENDOR RISK
-    # Current Q27
+    # OPERATIONS — RULE 3.6 VENDOR RISK
     # =====================================================
 
     vendor_backup = answer_lower(
@@ -745,43 +1605,80 @@ def evaluate_official_ontology_rules(
         27
     )
 
-    if "for some" in vendor_backup:
-        results["operations"].append(
-            make_rule_result(
-                rule_id="3.6",
-                silo="operations",
-                title="Vendor concentration risk is medium",
-                analysis=(
-                    "Pre-vetted Tier-2 alternatives exist for only "
-                    "some suppliers or services."
-                ),
-                evidence_question_ids=[
-                    27
-                ],
-                recommendations=[
-                    "Audit which critical vendors or services still lack pre-vetted alternatives."
-                ],
-                classification="MEDIUM"
-            )
+    operational_bottleneck = answer_lower(
+        answers,
+        4
+    )
+
+    vendor_bottleneck = (
+        "supplier/vendor dependencies" in operational_bottleneck
+        or "vendor dependencies" in operational_bottleneck
+        or "supplier dependencies" in operational_bottleneck
+    )
+
+    if (
+        vendor_backup == "no"
+        and vendor_bottleneck
+    ):
+        add_rule(
+            results,
+            silo="operations",
+            rule_id="3.6",
+            title="Vendor concentration risk is high",
+            analysis=(
+                "No pre-vetted Tier-2 alternatives are available "
+                "and the primary operational bottleneck is vendor "
+                "dependency. Official Rule 3.6 therefore classifies "
+                "vendor concentration risk as HIGH."
+            ),
+            evidence_question_ids=[
+                4,
+                27
+            ],
+            recommendations=[
+                "Develop Tier-2 vendor relationships immediately."
+            ],
+            classification="HIGH"
         )
 
-    elif vendor_backup == "no":
-        results["operations"].append(
-            make_rule_result(
-                rule_id="3.6",
-                silo="operations",
-                title="Vendor concentration risk is high",
-                analysis=(
-                    "No pre-vetted Tier-2 alternatives are available."
-                ),
-                evidence_question_ids=[
-                    27
-                ],
-                recommendations=[
-                    "Develop Tier-2 vendor relationships immediately."
-                ],
-                classification="HIGH"
-            )
+    elif "for some" in vendor_backup:
+        add_rule(
+            results,
+            silo="operations",
+            rule_id="3.6",
+            title="Vendor concentration risk is medium",
+            analysis=(
+                "Pre-vetted Tier-2 alternatives exist for only "
+                "some critical suppliers or services."
+            ),
+            evidence_question_ids=[
+                27
+            ],
+            recommendations=[
+                "Audit which critical vendors lack alternatives."
+            ],
+            classification="MEDIUM"
+        )
+
+    elif (
+        "for all critical services" in vendor_backup
+        or "all critical services" in vendor_backup
+    ):
+        add_rule(
+            results,
+            silo="operations",
+            rule_id="3.6",
+            title="Vendor concentration risk is low",
+            analysis=(
+                "Pre-vetted alternatives are available for all "
+                "critical services, which places vendor dependency "
+                "in the LOW-risk category."
+            ),
+            evidence_question_ids=[
+                27
+            ],
+            recommendations=[],
+            classification="LOW"
         )
 
 
@@ -877,6 +1774,7 @@ def evaluate_official_ontology_rules(
     sop_incomplete = (
         sop_coverage == "no"
         or "some" in sop_coverage
+        or "yes for most" in sop_coverage
     )
 
 
@@ -962,76 +1860,551 @@ def evaluate_official_ontology_rules(
             )
         )
 
+    # =====================================================
+    # OPERATIONS — RULE 3.1 DIGITAL INTENSITY
+    # =====================================================
+
+    digital_intensity = metrics.get(
+        "digital_intensity"
+    )
+
+    if digital_intensity is not None:
+
+        if digital_intensity >= 60:
+            digital_intensity_classification = "HIGH"
+        elif digital_intensity < 40:
+            digital_intensity_classification = "LOW"
+        else:
+            digital_intensity_classification = "MODERATE"
+
+        add_rule(
+            results,
+            silo="operations",
+            rule_id="3.1",
+            title=(
+                "Digital intensity is "
+                f"{digital_intensity_classification.lower()}"
+            ),
+            analysis=(
+                f"Official Rule 3.1 combines software usage, "
+                f"automation, AI experimentation and digital "
+                f"readiness. The calculated digital intensity is "
+                f"{digital_intensity:.1f}%."
+            ),
+            evidence_question_ids=[
+                22,
+                23,
+                24,
+                26
+            ],
+            recommendations=[],
+            classification=digital_intensity_classification,
+            kind="estimated_rule",
+            confidence="high"
+        )
+
+
+    # =====================================================
+    # OPERATIONS — RULE 3.2 TRANSFORMATION MANAGEMENT
+    # =====================================================
+
+    transformation_management = metrics.get(
+        "transformation_management"
+    )
+
+    if transformation_management is not None:
+
+        if transformation_management >= 60:
+            transformation_classification = "STRONG"
+        elif transformation_management < 40:
+            transformation_classification = "WEAK"
+        else:
+            transformation_classification = "MODERATE"
+
+        add_rule(
+            results,
+            silo="operations",
+            rule_id="3.2",
+            title=(
+                "Transformation management is "
+                f"{transformation_classification.lower()}"
+            ),
+            analysis=(
+                f"Official Rule 3.2 combines SOP coverage, written "
+                f"strategy and employee understanding. The calculated "
+                f"transformation-management score is "
+                f"{transformation_management:.1f}%."
+            ),
+            evidence_question_ids=[
+                10,
+                11,
+                21
+            ],
+            recommendations=[],
+            classification=transformation_classification,
+            kind="estimated_rule",
+            confidence="high"
+        )
+
+
+    # =====================================================
+    # OPERATIONS — RULE 3.3 MIT DIGITAL MATURITY QUADRANT
+    # =====================================================
+
+    digital_quadrant = metrics.get(
+        "digital_maturity_quadrant"
+    )
+
+    if digital_quadrant:
+
+        quadrant_analysis = {
+            "DIGIRATI": (
+                "Digital intensity and transformation management "
+                "are both at least 60%."
+            ),
+            "FASHIONISTA": (
+                "Digital intensity is at least 60% while "
+                "transformation management remains below 60%."
+            ),
+            "CONSERVATIVE": (
+                "Transformation management is at least 60% while "
+                "digital intensity remains below 60%."
+            ),
+            "BEGINNER": (
+                "Both digital intensity and transformation management "
+                "are below 60%."
+            )
+        }
+
+        quadrant_recommendations = {
+            "DIGIRATI": [],
+            "FASHIONISTA": [
+                "Strengthen process documentation before buying more technology."
+            ],
+            "CONSERVATIVE": [
+                "Pilot automation projects in high-ROI areas."
+            ],
+            "BEGINNER": [
+                "Focus on process standardisation before technology investment."
+            ]
+        }
+
+        add_rule(
+            results,
+            silo="operations",
+            rule_id="3.3",
+            title=(
+                "MIT digital maturity quadrant is "
+                f"{digital_quadrant.lower()}"
+            ),
+            analysis=quadrant_analysis[
+                digital_quadrant
+            ],
+            evidence_question_ids=[
+                10,
+                11,
+                21,
+                22,
+                23,
+                24,
+                26
+            ],
+            recommendations=quadrant_recommendations[
+                digital_quadrant
+            ],
+            classification=digital_quadrant,
+            kind="estimated_rule",
+            confidence="high"
+        )
+
+    # =====================================================
+    # OPERATIONS — RULE 3.10 TRANSFORMATION ROADMAP
+    # =====================================================
+
+    if digital_quadrant:
+
+        roadmap = {
+            "BEGINNER": [
+                "Document core processes.",
+                "Eliminate the primary operational bottleneck.",
+                "Pilot automation in the highest-priority AI area."
+            ],
+            "FASHIONISTA": [
+                "Audit technology ROI and actual tool usage.",
+                "Standardise processes.",
+                "Align technology spending to strategy."
+            ],
+            "CONSERVATIVE": [
+                "Identify high-impact automation opportunities.",
+                "Pilot AI in the top-priority area.",
+                "Scale successful pilots."
+            ],
+            "DIGIRATI": [
+                "Optimise existing systems.",
+                "Move into advanced AI integration.",
+                "Build competitive advantage through technology."
+            ]
+        }
+
+        add_rule(
+            results,
+            silo="operations",
+            rule_id="3.10",
+            title="Transformation roadmap generated",
+            analysis=(
+                f"Official Rule 3.10 applies the "
+                f"{digital_quadrant} transformation roadmap."
+            ),
+            evidence_question_ids=[
+                4,
+                21,
+                25
+            ],
+            recommendations=roadmap[
+                digital_quadrant
+            ],
+            classification=digital_quadrant,
+            kind="rule",
+            confidence="high"
+        )
+
 
     # =====================================================
     # FINANCIAL — RULE 4.1 REVENUE CONCENTRATION
-    # Current Q28
     # =====================================================
 
-    concentration_revenue = answer_lower(
-        answers,
-        28
+    concentration_classification = (
+        metrics.get(
+            "revenue_concentration_classification"
+        )
     )
 
-    if (
-        "<5" in concentration_revenue
-        or "under 5" in concentration_revenue
-    ):
-        results["financial"].append(
-            make_rule_result(
-                rule_id="4.1",
-                silo="financial",
-                title="Customer revenue concentration risk is low",
-                analysis=(
-                    "The largest customer represents less than 5% "
-                    "of revenue, placing customer concentration in "
-                    "the low-risk range."
-                ),
-                evidence_question_ids=[
-                    28
-                ],
-                recommendations=[
-                    "Maintain a diversified customer base."
-                ],
-                classification="LOW"
-            )
+    diversification_score = (
+        metrics.get(
+            "diversification_score"
+        )
+    )
+
+    if concentration_classification:
+
+        add_rule(
+            results,
+            silo="financial",
+            rule_id="4.1",
+            title=(
+                "Customer revenue concentration risk is "
+                f"{concentration_classification.lower()}"
+            ),
+            analysis=(
+                f"The largest-customer revenue range is "
+                f"{answer_text(answers, 28)}. "
+                f"Official Rule 4.1 classifies the "
+                f"concentration risk as "
+                f"{concentration_classification}, with a "
+                f"diversification score of "
+                f"{diversification_score}%."
+            ),
+            evidence_question_ids=[
+                28
+            ],
+            recommendations=(
+                [
+                    "Prioritise customer diversification immediately."
+                ]
+                if concentration_classification in {
+                    "HIGH",
+                    "CRITICAL"
+                }
+                else
+                [
+                    "Maintain an appropriately diversified customer base."
+                ]
+            ),
+            classification=concentration_classification
+        )
+
+    # =====================================================
+    # FINANCIAL — RULE 4.2 CONCENTRATION CROSS-SILO ALERTS
+    # =====================================================
+
+    if concentration_classification in {
+        "HIGH",
+        "CRITICAL"
+    }:
+
+        add_rule(
+            results,
+            silo="strategy",
+            rule_id="4.2",
+            title="Strategy must prioritise customer diversification",
+            analysis=(
+                "Customer concentration is HIGH or CRITICAL. "
+                "Official Rule 4.2 requires customer diversification "
+                "to become a strategic priority."
+            ),
+            evidence_question_ids=[
+                28
+            ],
+            recommendations=[
+                "Prioritise customer diversification before taking additional concentration risk."
+            ],
+            classification=concentration_classification
+        )
+
+        add_rule(
+            results,
+            silo="marketing",
+            rule_id="4.2",
+            title="Sales must expand the customer base",
+            analysis=(
+                "Customer concentration is HIGH or CRITICAL. "
+                "Official Rule 4.2 requires Sales and Marketing "
+                "to expand the customer base."
+            ),
+            evidence_question_ids=[
+                28
+            ],
+            recommendations=[
+                "Increase acquisition activity aimed at reducing dependence on the largest customer."
+            ],
+            classification=concentration_classification
+        )
+
+        add_rule(
+            results,
+            silo="risk",
+            rule_id="4.2",
+            title="High customer dependency risk detected",
+            analysis=(
+                "HIGH or CRITICAL customer concentration triggers "
+                "the official customer-dependency risk alert."
+            ),
+            evidence_question_ids=[
+                28
+            ],
+            recommendations=[
+                "Track customer concentration as a material enterprise risk."
+            ],
+            classification=concentration_classification
         )
 
 
     # =====================================================
     # FINANCIAL — RULE 4.3 BUSINESS MODEL
-    # Current Q30
     # =====================================================
 
-    recurring = answer_lower(
-        answers,
-        30
+    business_model = metrics.get(
+        "business_model"
     )
 
-    if (
-        "<25" in recurring
-        or "under 25" in recurring
-    ):
-        results["financial"].append(
-            make_rule_result(
-                rule_id="4.3",
-                silo="financial",
-                title="Business model is project-based with low revenue predictability",
-                analysis=(
-                    "Less than 25% of revenue is recurring. Under "
-                    "the official PULSE rule this is classified as "
-                    "a project-based model with LOW revenue predictability."
-                ),
-                evidence_question_ids=[
-                    30
-                ],
-                recommendations=[
+    predictability = metrics.get(
+        "revenue_predictability"
+    )
+
+    if business_model:
+
+        add_rule(
+            results,
+            silo="financial",
+            rule_id="4.3",
+            title=(
+                f"Business model is "
+                f"{business_model.lower()} with "
+                f"{predictability.lower()} revenue predictability"
+            ),
+            analysis=(
+                f"Recurring revenue is reported as "
+                f"{answer_text(answers, 30)}. "
+                f"Official Rule 4.3 classifies this as a "
+                f"{business_model} model with "
+                f"{predictability} revenue predictability."
+            ),
+            evidence_question_ids=[
+                30
+            ],
+            recommendations=(
+                [
                     "Develop recurring revenue streams to improve cash-flow predictability."
-                ],
-                classification="LOW"
-            )
+                ]
+                if business_model == "PROJECT-BASED"
+                else []
+            ),
+            classification=predictability
         )
 
+    # =====================================================
+    # FINANCE — RULE 4.4 CCC
+    # =====================================================
+
+    ccc_days = metrics.get(
+        "ccc_days"
+    )
+
+    if ccc_days is not None:
+
+        add_rule(
+            results,
+            silo="financial",
+            rule_id="4.4",
+            title="Estimated cash conversion cycle calculated",
+            analysis=(
+                f"The official service-business CCC model produces "
+                f"an estimated cash conversion cycle of "
+                f"{ccc_days:.1f} days."
+            ),
+            evidence_question_ids=[
+                29,
+                30
+            ],
+            recommendations=[
+                "Use the estimated CCC as a working-capital diagnostic, not as a measured accounting value."
+            ],
+            classification=None,
+            kind="estimated_rule",
+            confidence="medium"
+        )
+
+
+    # =====================================================
+    # FINANCE — RULE 4.5 CASH EFFICIENCY
+    # =====================================================
+
+    cash_efficiency = metrics.get(
+        "cash_efficiency"
+    )
+
+    if cash_efficiency:
+
+        add_rule(
+            results,
+            silo="financial",
+            rule_id="4.5",
+            title=(
+                "Working-capital efficiency is "
+                f"{cash_efficiency.lower()}"
+            ),
+            analysis=(
+                f"The estimated CCC is "
+                f"{ccc_days:.1f} days, which Rule 4.5 "
+                f"classifies as {cash_efficiency}."
+            ),
+            evidence_question_ids=[
+                29,
+                30
+            ],
+            recommendations=(
+                [
+                    "Improve collection processes and working-capital controls."
+                ]
+                if cash_efficiency in {
+                    "POOR",
+                    "CRITICAL"
+                }
+                else []
+            ),
+            classification=cash_efficiency,
+            kind="estimated_rule",
+            confidence="medium"
+        )
+
+
+    # =====================================================
+    # FINANCE — RULE 4.6 DUPONT NPM ESTIMATE
+    # =====================================================
+
+    estimated_npm = metrics[
+        "estimated_net_profit_margin"
+    ]
+
+    add_rule(
+        results,
+        silo="financial",
+        rule_id="4.6",
+        title="Estimated net profit margin",
+        analysis=(
+            f"Using the official DuPont service-business baseline "
+            f"and its prescribed inefficiency multipliers, "
+            f"estimated net profit margin is "
+            f"{estimated_npm:.1f}%. This is an ontology estimate, "
+            f"not reported financial performance."
+        ),
+        evidence_question_ids=[
+            8,
+            21,
+            29
+        ],
+        recommendations=[
+            "Validate this estimated margin against actual management accounts."
+        ],
+        classification=None,
+        kind="estimated_rule",
+        confidence="medium"
+    )
+
+
+    # =====================================================
+    # FINANCE — RULE 4.7 ASSET TURNOVER ESTIMATE
+    # =====================================================
+
+    add_rule(
+        results,
+        silo="financial",
+        rule_id="4.7",
+        title="Estimated asset turnover",
+        analysis=(
+            f"Official Rule 4.7 produces an estimated asset "
+            f"turnover of "
+            f"{metrics['estimated_asset_turnover']:.2f}."
+        ),
+        evidence_question_ids=[
+            14,
+            22,
+            23,
+            24,
+            26
+        ],
+        recommendations=[
+            "Validate the estimated asset-utilisation ratio against actual balance-sheet and revenue data."
+        ],
+        kind="estimated_rule",
+        confidence="medium"
+    )
+
+
+    # =====================================================
+    # FINANCE — RULE 4.8 ESTIMATED ROE
+    # =====================================================
+
+    add_rule(
+        results,
+        silo="financial",
+        rule_id="4.8",
+        title="Estimated DuPont return on equity",
+        analysis=(
+            f"The official DuPont estimate combines the "
+            f"estimated margin, asset turnover and the document's "
+            f"1.5 leverage assumption. Estimated ROE is "
+            f"{metrics['estimated_roe']:.1f}%."
+        ),
+        evidence_question_ids=[
+            8,
+            14,
+            21,
+            22,
+            23,
+            24,
+            26,
+            29
+        ],
+        recommendations=[
+            "Treat this as a framework estimate until actual financial statements are connected."
+        ],
+        kind="estimated_rule",
+        confidence="medium"
+    )
+
+
+    
 
     # =====================================================
     # MARKETING — RULE 5.1 SEGMENTATION
@@ -1206,6 +2579,92 @@ def evaluate_official_ontology_rules(
             )
         )
 
+    # =====================================================
+    # SERVICE — RULE 6.10 ESTIMATED NPS
+    # =====================================================
+
+    estimated_nps = metrics.get(
+        "estimated_nps"
+    )
+
+    if estimated_nps is not None:
+
+        if estimated_nps >= 50:
+            nps_classification = "EXCELLENT"
+        elif estimated_nps >= 20:
+            nps_classification = "GOOD"
+        elif estimated_nps >= 0:
+            nps_classification = "NEEDS IMPROVEMENT"
+        else:
+            nps_classification = "CRITICAL"
+
+        add_rule(
+            results,
+            silo="service",
+            rule_id="6.10",
+            title=(
+                "Estimated NPS is "
+                f"{nps_classification.lower()}"
+            ),
+            analysis=(
+                f"Official Rule 6.10 estimates NPS from referral "
+                f"frequency and quality consistency. The estimated "
+                f"NPS is {estimated_nps:.1f}."
+            ),
+            evidence_question_ids=[
+                39,
+                40
+            ],
+            recommendations=(
+                [
+                    "Treat the negative estimated NPS as a customer-satisfaction crisis and investigate root causes immediately."
+                ]
+                if estimated_nps < 0
+                else []
+            ),
+            classification=nps_classification,
+            kind="estimated_rule",
+            confidence="medium"
+        )
+
+    # =====================================================
+    # SERVICE/RISK — CROSS-RULE CS.23
+    # QUALITY CONSISTENCY <= 2
+    # =====================================================
+
+    quality_consistency_score = numeric_score(
+        answers,
+        39
+    )
+
+    if (
+        quality_consistency_score is not None
+        and quality_consistency_score <= 2
+    ):
+
+        add_rule(
+            results,
+            silo="risk",
+            rule_id="CS.23-REPUTATION",
+            title="Service inconsistency creates high reputational risk",
+            analysis=(
+                "Service quality consistency is rated 2 or lower. "
+                "Under official Cross-Rule CS.23 for the superyacht "
+                "industry, this creates reputational-damage exposure "
+                "with Likely likelihood and Major impact, producing "
+                "a HIGH risk rating."
+            ),
+            evidence_question_ids=[
+                39
+            ],
+            recommendations=[
+                "Implement service-quality safeguards before a high-visibility service failure occurs."
+            ],
+            classification="HIGH",
+            kind="rule",
+            confidence="high"
+        )
+
 
     # =====================================================
     # SERVICE/RISK — CROSS-RULE CS.23
@@ -1274,10 +2733,300 @@ def evaluate_official_ontology_rules(
             )
         )
 
+    # =====================================================
+    # RISK — RULES 7.4, 7.5, 7.6
+    # ISO 31000 SYSTEMATIC RISK IDENTIFICATION
+    # =====================================================
+
+    generated_risks = []
+
+
+    def add_generated_risk(
+        *,
+        result_id,
+        title,
+        category,
+        likelihood,
+        impact,
+        evidence_ids
+    ):
+
+        rating_matrix = {
+            ("almost certain", "catastrophic"): "CRITICAL",
+            ("likely", "catastrophic"): "CRITICAL",
+            ("possible", "catastrophic"): "HIGH",
+            ("unlikely", "catastrophic"): "MEDIUM",
+            ("rare", "catastrophic"): "MEDIUM",
+
+            ("almost certain", "major"): "HIGH",
+            ("likely", "major"): "HIGH",
+            ("possible", "major"): "MEDIUM",
+            ("unlikely", "major"): "LOW",
+            ("rare", "major"): "LOW",
+
+            ("almost certain", "moderate"): "MEDIUM",
+            ("likely", "moderate"): "MEDIUM",
+            ("possible", "moderate"): "LOW",
+            ("unlikely", "moderate"): "LOW",
+            ("rare", "moderate"): "LOW"
+        }
+
+        rating = rating_matrix.get(
+            (
+                likelihood.lower(),
+                impact.lower()
+            ),
+            "LOW"
+        )
+
+        if rating == "CRITICAL":
+            treatment = (
+                "AVOID"
+                if category.lower() == "compliance"
+                else "REDUCE"
+            )
+        elif rating == "HIGH":
+            treatment = "REDUCE"
+        elif rating == "MEDIUM":
+            treatment = "MONITOR / REDUCE / TRANSFER"
+        else:
+            treatment = "ACCEPT"
+
+        generated_risks.append({
+            "result_id": result_id,
+            "title": title,
+            "category": category,
+            "likelihood": likelihood,
+            "impact": impact,
+            "rating": rating,
+            "treatment": treatment,
+            "evidence_ids": evidence_ids
+        })
+
+
+    owner_dependency = answer_lower(
+        answers,
+        13
+    )
+
+    if (
+        "heavily owner-dependent" in owner_dependency
+        or "owner-dependent" in owner_dependency
+    ):
+        add_generated_risk(
+            result_id="7.4/7.5/7.6-OWNER-DEPENDENCY",
+            title="Single point of failure from owner dependency",
+            category="Strategic",
+            likelihood="Likely",
+            impact="Catastrophic",
+            evidence_ids=[
+                13
+            ]
+        )
+
+
+    if (
+        metrics.get("turnover") is not None
+        and metrics["turnover"] >= 50
+    ):
+        add_generated_risk(
+            result_id="7.4/7.5/7.6-TURNOVER-CONTINUITY",
+            title="High turnover threatens operational continuity",
+            category="Operational",
+            likelihood="Almost Certain",
+            impact="Major",
+            evidence_ids=[
+                18
+            ]
+        )
+
+
+    if (
+        metrics.get("knowledge_concentration") is not None
+        and metrics["knowledge_concentration"] > 50
+    ):
+        add_generated_risk(
+            result_id="7.4/7.5/7.6-KNOWLEDGE-CONCENTRATION",
+            title="Critical knowledge is concentrated in one person",
+            category="Operational",
+            likelihood="Possible",
+            impact="Major",
+            evidence_ids=[
+                20
+            ]
+        )
+
+
+    if vendor_backup == "no":
+        add_generated_risk(
+            result_id="7.4/7.5/7.6-VENDOR-SINGLE-POINT",
+            title="Vendor single point of failure",
+            category="Operational",
+            likelihood="Unlikely",
+            impact="Major",
+            evidence_ids=[
+                27
+            ]
+        )
+
+
+    if (
+        metrics.get("revenue_concentration_midpoint") is not None
+        and metrics["revenue_concentration_midpoint"] >= 50
+    ):
+        add_generated_risk(
+            result_id="7.4/7.5/7.6-REVENUE-CONCENTRATION",
+            title="Revenue concentration in a single customer",
+            category="Financial",
+            likelihood="Possible",
+            impact="Catastrophic",
+            evidence_ids=[
+                28
+            ]
+        )
+
+
+    if answer_lower(
+        answers,
+        29
+    ) == "yes":
+        add_generated_risk(
+            result_id="7.4/7.5/7.6-FINANCIAL-WASTE",
+            title="Financial waste is eroding profitability",
+            category="Financial",
+            likelihood="Likely",
+            impact="Moderate",
+            evidence_ids=[
+                29
+            ]
+        )
+
+
+    if (
+        metrics.get("inbound_midpoint") is not None
+        and metrics["inbound_midpoint"] < 30
+    ):
+        add_generated_risk(
+            result_id="7.4/7.5/7.6-OUTBOUND-DEPENDENCE",
+            title="Over-reliance on outbound sales weakens brand resilience",
+            category="Strategic",
+            likelihood="Likely",
+            impact="Moderate",
+            evidence_ids=[
+                31
+            ]
+        )
+
+
+    if (
+        metrics.get("repeat_customer_midpoint") is not None
+        and metrics["repeat_customer_midpoint"] < 25
+    ):
+        add_generated_risk(
+            result_id="7.4/7.5/7.6-CUSTOMER-RETENTION",
+            title="Low customer retention threatens revenue",
+            category="Financial",
+            likelihood="Almost Certain",
+            impact="Major",
+            evidence_ids=[
+                38
+            ]
+        )
+
+
+    if "no formal process" in answer_lower(
+        answers,
+        44
+    ):
+        add_generated_risk(
+            result_id="7.4/7.5/7.6-SANCTIONS",
+            title="Sanctions violation risk from absent screening",
+            category="Compliance",
+            likelihood="Possible",
+            impact="Catastrophic",
+            evidence_ids=[
+                44
+            ]
+        )
+
+
+    if answer_lower(
+        answers,
+        45
+    ) == "no":
+        add_generated_risk(
+            result_id="7.4/7.5/7.6-AML",
+            title="AML compliance failure risk",
+            category="Compliance",
+            likelihood="Possible",
+            impact="Major",
+            evidence_ids=[
+                45
+            ]
+        )
+
+
+    if answer_lower(
+        answers,
+        46
+    ) == "no":
+        add_generated_risk(
+            result_id="7.4/7.5/7.6-PI-COVER",
+            title="Inadequate Professional Indemnity coverage",
+            category="Financial",
+            likelihood="Unlikely",
+            impact="Catastrophic",
+            evidence_ids=[
+                46
+            ]
+        )
+
+
+    if (
+        "<3" in answer_lower(
+            answers,
+            48
+        )
+        or "under 3" in answer_lower(
+            answers,
+            48
+        )
+    ):
+        add_generated_risk(
+            result_id="7.4/7.5/7.6-CASH-RUNWAY",
+            title="Insufficient cash runway for market disruption",
+            category="Financial",
+            likelihood="Possible",
+            impact="Catastrophic",
+            evidence_ids=[
+                48
+            ]
+        )
+
+
+    for risk in generated_risks:
+
+        add_rule(
+            results,
+            silo="risk",
+            rule_id=risk["result_id"],
+            title=risk["title"],
+            analysis=(
+                f"ISO 31000 assigns this risk "
+                f"{risk['likelihood']} likelihood and "
+                f"{risk['impact']} impact. The official matrix "
+                f"therefore rates it {risk['rating']}."
+            ),
+            evidence_question_ids=risk["evidence_ids"],
+            recommendations=[
+                f"Apply the official {risk['treatment']} treatment response."
+            ],
+            classification=risk["rating"]
+        )
+
 
     # =====================================================
-    # RISK — RULE 7.1 CONTRACTOR INSURANCE
-    # Current Q43 + Q46
+    # RISK — RULE 7.1 CONTRACTOR LIABILITY BOWTIE
     # =====================================================
 
     contractor_insurance = answer_lower(
@@ -1290,52 +3039,125 @@ def evaluate_official_ontology_rules(
         46
     )
 
-    if "sometimes" in contractor_insurance:
-        results["risk"].append(
-            make_rule_result(
-                rule_id="7.1-CONTRACTOR-INSURANCE",
-                silo="risk",
-                title="Contractor insurance verification is a weak prevention barrier",
-                analysis=(
-                    "Subcontractor proof of insurance is required "
-                    "only sometimes. The official Bowtie rule "
-                    "classifies this as a WEAK prevention barrier."
-                ),
-                evidence_question_ids=[
-                    43
-                ],
-                recommendations=[
-                    "Require consistent proof of insurance from subcontractors."
-                ],
-                classification="WEAK"
-            )
+    vendor_backup_for_risk = answer_lower(
+        answers,
+        27
+    )
+
+
+    contractor_barrier = None
+
+    if contractor_insurance == "yes":
+        contractor_barrier = "STRONG"
+    elif "sometimes" in contractor_insurance:
+        contractor_barrier = "WEAK"
+    elif contractor_insurance == "no":
+        contractor_barrier = "ABSENT"
+
+    if contractor_barrier:
+
+        add_rule(
+            results,
+            silo="risk",
+            rule_id="7.1-CONTRACTOR-INSURANCE",
+            title=(
+                "Contractor insurance verification barrier is "
+                f"{contractor_barrier.lower()}"
+            ),
+            analysis=(
+                "Official Rule 7.1 classifies subcontractor "
+                "insurance verification as "
+                f"{contractor_barrier}."
+            ),
+            evidence_question_ids=[
+                43
+            ],
+            recommendations=(
+                [
+                    "Mandate contractor insurance verification immediately."
+                ]
+                if contractor_barrier == "ABSENT"
+                else []
+            ),
+            classification=contractor_barrier
         )
 
-    if "partial" in pi_cover:
-        results["risk"].append(
-            make_rule_result(
-                rule_id="7.1-PI-COVER",
-                silo="risk",
-                title="Professional Indemnity coverage is a moderate recovery barrier",
-                analysis=(
-                    "Professional Indemnity insurance only partially "
-                    "covers the largest contract. The official rule "
-                    "classifies this recovery barrier as MODERATE."
-                ),
-                evidence_question_ids=[
-                    46
-                ],
-                recommendations=[
-                    "Review Professional Indemnity limits against the value of the largest contract."
-                ],
-                classification="MODERATE"
-            )
+
+    vendor_vetting_barrier = None
+
+    if vendor_backup_for_risk:
+
+        if "for all critical services" in vendor_backup_for_risk:
+            vendor_vetting_barrier = "MODERATE"
+
+        else:
+            vendor_vetting_barrier = "WEAK"
+
+
+    if vendor_vetting_barrier:
+
+        add_rule(
+            results,
+            silo="risk",
+            rule_id="7.1-VENDOR-VETTING",
+            title=(
+                "Vendor vetting barrier is "
+                f"{vendor_vetting_barrier.lower()}"
+            ),
+            analysis=(
+                "Official Rule 7.1 uses Tier-2 vendor availability "
+                "as a contractor-liability prevention barrier."
+            ),
+            evidence_question_ids=[
+                27
+            ],
+            recommendations=[],
+            classification=vendor_vetting_barrier
+        )
+
+
+    pi_barrier = None
+
+    if pi_cover == "yes":
+        pi_barrier = "STRONG"
+    elif "partial" in pi_cover:
+        pi_barrier = "MODERATE"
+    elif pi_cover == "no":
+        pi_barrier = "ABSENT"
+
+    if pi_barrier:
+
+        add_rule(
+            results,
+            silo="risk",
+            rule_id="7.1-PI-COVER",
+            title=(
+                "Professional Indemnity recovery barrier is "
+                f"{pi_barrier.lower()}"
+            ),
+            analysis=(
+                "Official Rule 7.1 classifies PI insurance coverage "
+                f"as a {pi_barrier} recovery barrier."
+            ),
+            evidence_question_ids=[
+                46
+            ],
+            recommendations=(
+                [
+                    "Review Professional Indemnity limits against the largest contract immediately."
+                ]
+                if pi_barrier in {
+                    "ABSENT",
+                    "MODERATE"
+                }
+                else []
+            ),
+            classification=pi_barrier
         )
 
 
     # =====================================================
-    # RISK — RULE 7.2 SANCTIONS
-    # Current Q44
+    # RISK — RULE 7.2 SANCTIONS / UBO BOWTIE
     # =====================================================
 
     sanctions = answer_lower(
@@ -1343,59 +3165,291 @@ def evaluate_official_ontology_rules(
         44
     )
 
-    if "no formal process" in sanctions:
-        results["risk"].append(
-            make_rule_result(
-                rule_id="7.2",
-                silo="risk",
-                title="Sanctions screening control is absent and exposure is critical",
-                analysis=(
-                    "Sanctions screening has no formal process. "
-                    "Under the official Bowtie rule this is an "
-                    "ABSENT prevention barrier and triggers a "
-                    "CRITICAL sanctions compliance gap."
-                ),
-                evidence_question_ids=[
-                    44
-                ],
-                recommendations=[
-                    "Implement a formal sanctions-screening process immediately."
-                ],
-                classification="CRITICAL"
-            )
-        )
-
-
-    # =====================================================
-    # RISK — UBO CONTROL
-    # Current Q45
-    # =====================================================
-
     ubo = answer_lower(
         answers,
         45
     )
 
-    if "only if required by bank" in ubo:
-        results["risk"].append(
-            make_rule_result(
-                rule_id="7.2-UBO",
-                silo="risk",
-                title="UBO verification is a weak prevention barrier",
-                analysis=(
-                    "Ultimate beneficial ownership is verified only "
-                    "when required by a bank. The official Bowtie "
-                    "definition classifies this as a WEAK barrier."
-                ),
-                evidence_question_ids=[
-                    45
-                ],
-                recommendations=[
-                    "Introduce consistent UBO verification independent of bank requirements."
-                ],
-                classification="WEAK"
-            )
+
+    sanctions_barrier = None
+
+    if "automated" in sanctions:
+        sanctions_barrier = "STRONG"
+    elif "periodic manual" in sanctions:
+        sanctions_barrier = "MODERATE"
+    elif "onboarding only" in sanctions:
+        sanctions_barrier = "WEAK"
+    elif "no formal process" in sanctions:
+        sanctions_barrier = "ABSENT"
+
+    if sanctions_barrier:
+
+        add_rule(
+            results,
+            silo="risk",
+            rule_id="7.2-SANCTIONS",
+            title=(
+                "Sanctions screening barrier is "
+                f"{sanctions_barrier.lower()}"
+            ),
+            analysis=(
+                "Official Rule 7.2 classifies the current "
+                "sanctions-screening control as "
+                f"{sanctions_barrier}."
+            ),
+            evidence_question_ids=[
+                44
+            ],
+            recommendations=(
+                [
+                    "Implement automated sanctions screening immediately."
+                ]
+                if sanctions_barrier == "ABSENT"
+                else []
+            ),
+            classification=sanctions_barrier
         )
+
+
+    ubo_barrier = None
+
+    if (
+        "yes, always" in ubo
+        or ubo == "always"
+    ):
+        ubo_barrier = "STRONG"
+    elif (
+        "occasionally" in ubo
+        or "only if required by bank" in ubo
+    ):
+        ubo_barrier = "WEAK"
+    elif ubo == "no":
+        ubo_barrier = "ABSENT"
+
+    if ubo_barrier:
+
+        add_rule(
+            results,
+            silo="risk",
+            rule_id="7.2-UBO",
+            title=(
+                "UBO verification barrier is "
+                f"{ubo_barrier.lower()}"
+            ),
+            analysis=(
+                "Official Rule 7.2 classifies current UBO "
+                f"verification as a {ubo_barrier} prevention barrier."
+            ),
+            evidence_question_ids=[
+                45
+            ],
+            recommendations=(
+                [
+                    "Introduce consistent UBO verification immediately."
+                ]
+                if ubo_barrier in {
+                    "WEAK",
+                    "ABSENT"
+                }
+                else []
+            ),
+            classification=ubo_barrier
+        )
+
+
+    if (
+        sanctions_barrier == "ABSENT"
+        or ubo_barrier == "ABSENT"
+    ):
+        add_rule(
+            results,
+            silo="risk",
+            rule_id="7.2-CRITICAL-EXPOSURE",
+            title="Sanctions risk exposure is critical",
+            analysis=(
+                "Sanctions screening is absent or UBO verification "
+                "is absent. Official Rule 7.2 therefore classifies "
+                "sanctions exposure as CRITICAL."
+            ),
+            evidence_question_ids=[
+                44,
+                45
+            ],
+            recommendations=[
+                "Implement automated screening and formal ownership verification immediately."
+            ],
+            classification="CRITICAL"
+        )
+
+    # =====================================================
+    # RISK — RULE 7.3 FINANCIAL DISTRESS BOWTIE
+    # =====================================================
+
+    runway_value = answer_lower(
+        answers,
+        48
+    )
+
+    if (
+        "12+" in runway_value
+        or "over 12" in runway_value
+    ):
+        reserve_barrier = "STRONG"
+    elif "6-12" in runway_value:
+        reserve_barrier = "MODERATE"
+    elif "3-6" in runway_value:
+        reserve_barrier = "WEAK"
+    elif (
+        "<3" in runway_value
+        or "under 3" in runway_value
+    ):
+        reserve_barrier = "ABSENT"
+    else:
+        reserve_barrier = None
+
+
+    concentration_value = answer_lower(
+        answers,
+        28
+    )
+
+    if (
+        "<5" in concentration_value
+        or "under 5" in concentration_value
+    ):
+        diversification_barrier = "STRONG"
+    elif "5-15" in concentration_value:
+        diversification_barrier = "MODERATE"
+    elif (
+        "25-50" in concentration_value
+        or "50-75" in concentration_value
+        or "75-100" in concentration_value
+        or ">25" in concentration_value
+    ):
+        diversification_barrier = "WEAK"
+    else:
+        diversification_barrier = None
+
+
+    recurring_value = answer_lower(
+        answers,
+        30
+    )
+
+    if (
+        ">75" in recurring_value
+        or "75-100" in recurring_value
+    ):
+        recurring_barrier = "STRONG"
+    elif "50-75" in recurring_value:
+        recurring_barrier = "MODERATE"
+    elif "25-50" in recurring_value:
+        recurring_barrier = "WEAK"
+    elif (
+        "<25" in recurring_value
+        or "under 25" in recurring_value
+    ):
+        recurring_barrier = "ABSENT"
+    else:
+        recurring_barrier = None
+
+
+    if reserve_barrier:
+
+        add_rule(
+            results,
+            silo="risk",
+            rule_id="7.3-RESERVES",
+            title=(
+                "Financial reserve barrier is "
+                f"{reserve_barrier.lower()}"
+            ),
+            analysis=(
+                "Official Rule 7.3 classifies operational cash "
+                f"runway as a {reserve_barrier} insolvency-prevention barrier."
+            ),
+            evidence_question_ids=[
+                48
+            ],
+            recommendations=[],
+            classification=reserve_barrier
+        )
+
+
+    if diversification_barrier:
+
+        add_rule(
+            results,
+            silo="risk",
+            rule_id="7.3-DIVERSIFICATION",
+            title=(
+                "Revenue diversification barrier is "
+                f"{diversification_barrier.lower()}"
+            ),
+            analysis=(
+                "Official Rule 7.3 classifies revenue diversification "
+                f"as a {diversification_barrier} prevention barrier."
+            ),
+            evidence_question_ids=[
+                28
+            ],
+            recommendations=[],
+            classification=diversification_barrier
+        )
+
+
+    if recurring_barrier:
+
+        add_rule(
+            results,
+            silo="risk",
+            rule_id="7.3-RECURRING-REVENUE",
+            title=(
+                "Recurring revenue barrier is "
+                f"{recurring_barrier.lower()}"
+            ),
+            analysis=(
+                "Official Rule 7.3 classifies recurring revenue "
+                f"as a {recurring_barrier} resilience barrier."
+            ),
+            evidence_question_ids=[
+                30
+            ],
+            recommendations=[],
+            classification=recurring_barrier
+        )
+
+
+    if (
+        reserve_barrier == "ABSENT"
+        and metrics.get(
+            "revenue_concentration_midpoint"
+        ) is not None
+        and metrics[
+            "revenue_concentration_midpoint"
+        ] > 50
+    ):
+        add_rule(
+            results,
+            silo="risk",
+            rule_id="7.3-CRITICAL-DISTRESS",
+            title="Financial distress risk is critical",
+            analysis=(
+                "Operational runway is under three months and "
+                "customer concentration exceeds 50%. Official "
+                "Rule 7.3 therefore classifies residual financial "
+                "distress risk as CRITICAL."
+            ),
+            evidence_question_ids=[
+                28,
+                48
+            ],
+            recommendations=[
+                "Implement an emergency cash-conservation plan."
+            ],
+            classification="CRITICAL"
+        )
+
 
 
     referral_policy = answer_lower(
@@ -1690,17 +3744,28 @@ def evaluate_official_ontology_rules(
     ):
         runway_classification = "CRITICAL"
 
+    revenue_concentration_value = answer_lower(
+        answers,
+        28
+    )
+
+    recurring_revenue_value = answer_lower(
+        answers,
+        30
+    )
+
     revenue_concentration_high = (
-        "50-75" in concentration_revenue
-        or "75-100" in concentration_revenue
-        or ">50" in concentration_revenue
-        or "over 50" in concentration_revenue
+        "50-75" in revenue_concentration_value
+        or "75-100" in revenue_concentration_value
+        or ">75" in revenue_concentration_value
+        or ">50" in revenue_concentration_value
+        or "over 50" in revenue_concentration_value
     )
 
     recurring_below_25 = (
-        "<25" in recurring
-        or "under 25" in recurring
-        or "0-25" in recurring
+        "<25" in recurring_revenue_value
+        or "under 25" in recurring_revenue_value
+        or "0-25" in recurring_revenue_value
     )
 
     perfect_storm_financial_risk = (
@@ -1803,77 +3868,6 @@ def evaluate_official_ontology_rules(
             )
         )
 
-    employee_count = answer_lower(
-        answers,
-        14
-    )
-
-    small_team = (
-        "0-5" in employee_count
-        or "6-10" in employee_count
-    )
-
-    growth_opportunities = answer_lower(
-        answers,
-        12
-    ) 
-
-    growth_opportunities_are_ambitious = False
-
-    if (
-        small_team
-        and turnover_at_least_50
-        and growth_opportunities_are_ambitious
-    ):
-
-        results["strategy"].append(
-            make_rule_result(
-                rule_id="CS.22",
-                silo="strategy",
-                title="Team instability may constrain the growth strategy",
-                analysis=(
-                    "The business has a small team, employee turnover "
-                    "is at least 50%, and growth opportunities are "
-                    "being pursued. The cross-silo rule identifies "
-                    "team stability as a prerequisite for scaling."
-                ),
-                evidence_question_ids=[
-                    12,
-                    14,
-                    18
-                ],
-                recommendations=[
-                    "Stabilise employee retention before materially scaling growth activity."
-                ],
-                classification="HIGH PRIORITY",
-                kind="rule",
-                confidence="high"
-            )
-        )
-
-        results["marketing"].append(
-            make_rule_result(
-                rule_id="CS.22",
-                silo="marketing",
-                title="Team instability may constrain marketing-led growth",
-                analysis=(
-                    "A small team combined with employee turnover of "
-                    "at least 50% can constrain the organisation's "
-                    "capacity to support additional customer acquisition."
-                ),
-                evidence_question_ids=[
-                    12,
-                    14,
-                    18
-                ],
-                recommendations=[
-                    "Stabilise team capacity before materially increasing acquisition activity."
-                ],
-                classification="HIGH PRIORITY",
-                kind="rule",
-                confidence="high"
-            )
-        )
 
     concentration_over_50 = (
         "50-75" in concentration
@@ -1914,6 +3908,302 @@ def evaluate_official_ontology_rules(
                 kind="rule",
                 confidence="high"
             )
+        )
+
+    # =====================================================
+    # CROSS-RULE CS.4
+    # HR → EFFICIENCY → SERVICE
+    # =====================================================
+
+    if (
+        metrics.get(
+            "turnover"
+        )
+        is not None
+        and metrics[
+            "turnover"
+        ] >= 50
+    ):
+
+        add_rule(
+            results,
+            silo="operations",
+            rule_id="CS.4",
+            title="High turnover is reducing process stability",
+            analysis=(
+                "Employee turnover is at least 50%. Official "
+                "Cross-Rule CS.4 applies a 40% deterioration to "
+                "process stability."
+            ),
+            evidence_question_ids=[
+                18
+            ],
+            recommendations=[
+                "Stabilise the workforce while documenting critical operational processes."
+            ],
+            classification="HIGH",
+            kind="estimated_rule"
+        )
+
+        add_rule(
+            results,
+            silo="service",
+            rule_id="CS.4",
+            title="High turnover is degrading service reliability and assurance",
+            analysis=(
+                "Turnover of at least 50% triggers the official "
+                "HR-Efficiency-Service Quality cascade, reducing "
+                "service reliability and assurance."
+            ),
+            evidence_question_ids=[
+                18
+            ],
+            recommendations=[
+                "Run workforce-retention and service-standardisation workstreams in parallel."
+            ],
+            classification="HIGH",
+            kind="estimated_rule"
+        )
+
+        # =====================================================
+    # CROSS-RULE CS.6
+    # EFFICIENCY → FINANCIAL WASTE
+    # =====================================================
+
+    estimated_waste_pct = 0
+    waste_evidence_ids = []
+
+    sop = answer_lower(
+        answers,
+        21
+    )
+
+    if sop == "no":
+        estimated_waste_pct += 10
+        waste_evidence_ids.append(
+            21
+        )
+
+    if contains_any(
+        answer_lower(
+            answers,
+            9
+        ),
+        [
+            "a lot",
+            "high"
+        ]
+    ):
+        estimated_waste_pct += 12
+        waste_evidence_ids.append(
+            9
+        )
+
+    if contains_any(
+        answer_lower(
+            answers,
+            5
+        ),
+        [
+            "critical impact"
+        ]
+    ):
+        estimated_waste_pct += 8
+        waste_evidence_ids.append(
+            5
+        )
+
+    if (
+        metrics.get(
+            "turnover"
+        )
+        is not None
+        and metrics[
+            "turnover"
+        ] >= 50
+    ):
+        estimated_waste_pct += 15
+        waste_evidence_ids.append(
+            18
+        )
+
+    metrics[
+        "cross_silo_estimated_waste_pct"
+    ] = estimated_waste_pct
+
+    if estimated_waste_pct >= 25:
+
+        add_rule(
+            results,
+            silo="financial",
+            rule_id="CS.6",
+            title="Cross-silo operational waste is high",
+            analysis=(
+                f"Official Cross-Rule CS.6 aggregates the current "
+                f"inefficiency signals into an estimated waste "
+                f"level of {estimated_waste_pct}% of revenue. "
+                f"This is a rule-derived estimate, not a measured "
+                f"financial result."
+            ),
+            evidence_question_ids=waste_evidence_ids,
+            recommendations=[
+                "Prioritise an operational excellence programme around the largest identified waste sources."
+            ],
+            classification="HIGH",
+            kind="estimated_rule",
+            confidence="medium"
+        )
+
+    # =====================================================
+    # RISK — RULE 7.10 ENTERPRISE RISK SCORE
+    # =====================================================
+
+    risk_findings = results.get(
+        "risk",
+        []
+    )
+
+    critical_count = sum(
+        1
+        for item in risk_findings
+        if str(
+            item.get(
+                "classification"
+            )
+            or ""
+        ).upper() == "CRITICAL"
+    )
+
+    high_count = sum(
+        1
+        for item in risk_findings
+        if str(
+            item.get(
+                "classification"
+            )
+            or ""
+        ).upper() == "HIGH"
+    )
+
+
+    resilience_score_lookup = {
+        "STRONG": 100,
+        "MODERATE": 70,
+        "WEAK": 40,
+        "CRITICAL": 0
+    }
+
+
+    resilience_findings = [
+        item
+        for item in risk_findings
+        if str(
+            item.get(
+                "rule_id"
+            )
+            or ""
+        ) == "7.9"
+    ]
+
+    resilience_class = (
+        str(
+            resilience_findings[-1].get(
+                "classification"
+            )
+            or ""
+        ).upper()
+        if resilience_findings
+        else ""
+    )
+
+    resilience_score = (
+        resilience_score_lookup.get(
+            resilience_class
+        )
+    )
+
+
+    if (
+        "compliance_maturity_score" in locals()
+        and resilience_score is not None
+    ):
+
+        critical_risk_component = min(
+            critical_count / 5,
+            1.0
+        ) * 100
+
+        high_risk_component = min(
+            high_count / 10,
+            1.0
+        ) * 100
+
+        # The source expresses the score as 1.0 minus a
+        # weighted risk burden. Compliance and resilience
+        # are positive controls, so convert them to deficits
+        # before including them in that risk burden.
+        risk_burden = (
+            critical_risk_component * 0.25
+            + high_risk_component * 0.15
+            + (
+                100
+                - compliance_maturity_score
+            ) * 0.30
+            + (
+                100
+                - resilience_score
+            ) * 0.30
+        )
+
+        enterprise_risk_score = max(
+            0.0,
+            100.0
+            - risk_burden
+        )
+
+        enterprise_at_risk = (
+            enterprise_risk_score < 50
+        )
+
+        add_rule(
+            results,
+            silo="risk",
+            rule_id="7.10",
+            title=(
+                "Enterprise is at risk"
+                if enterprise_at_risk
+                else "Enterprise risk score calculated"
+            ),
+            analysis=(
+                f"Official Rule 7.10 produces an enterprise-risk "
+                f"score of {enterprise_risk_score:.1f}/100 from "
+                f"critical risks, high risks, compliance maturity "
+                f"and operational resilience."
+            ),
+            evidence_question_ids=list(
+                dict.fromkeys(
+                    question_id
+                    for finding in risk_findings
+                    for question_id in finding.get(
+                        "evidence_question_ids",
+                        []
+                    )
+                )
+            ),
+            recommendations=(
+                [
+                    "Conduct a board-level risk review immediately."
+                ]
+                if enterprise_at_risk
+                else []
+            ),
+            classification=(
+                "ENTERPRISE AT RISK"
+                if enterprise_at_risk
+                else None
+            ),
+            kind="estimated_rule",
+            confidence="medium"
         )
 
     return results
@@ -2033,8 +4323,15 @@ FINDING CONSTRUCTION
 13. You may combine closely related official rule results into one
     finding ONLY if no classification is lost.
 
-14. You may add additional qualitative findings from direct evidence,
-    but they must not contradict or weaken official rule results.
+14. Do NOT create additional user-facing findings from direct
+    assessment evidence unless an official deterministic rule
+    result exists.
+
+    Direct assessment evidence may ONLY be used to explain an
+    existing official rule result.
+
+    Every user-facing finding MUST contain at least one valid
+    rule_id from official_rule_results.
 
 15. Recommendations must be consistent with the official rule.
 
@@ -2235,6 +4532,14 @@ Return ONLY valid JSON:
                     rule_ids.append(
                         rule_id
                     )
+
+            # =================================================
+            # USER-FACING FINDINGS MUST COME FROM AN
+            # OFFICIAL DETERMINISTIC ONTOLOGY RULE
+            # =================================================
+
+            if not rule_ids:
+                continue
 
             official_classification = None
             official_kind = None
